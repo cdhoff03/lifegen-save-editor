@@ -142,3 +142,42 @@ def extract(archive: Path, dest_parent: Path) -> Path:
     else:
         raise UpdateError(f"unsupported archive type: {archive.name}")
     return staging
+
+
+import os
+import platform
+import sys
+
+
+# TODO(user): set this to your GitHub <owner>/<repo> before first release.
+UPDATE_REPO = "<owner>/lifegen-save-editor"
+
+
+def manifest_url() -> str:
+    return f"https://github.com/{UPDATE_REPO}/releases/latest/download/latest.json"
+
+
+def auto_check_enabled() -> bool:
+    """Auto-check runs only for frozen builds, and can be disabled by env var."""
+    if os.environ.get("LIFEGEN_DISABLE_UPDATE_CHECK") == "1":
+        return False
+    return bool(getattr(sys, "frozen", False))
+
+
+def check_for_update() -> tuple[dict, dict] | None:
+    """Single-call helper: fetch manifest, compare versions, pick asset.
+
+    Returns ``(manifest, asset)`` if an update is available for this platform,
+    or ``None`` if up to date / platform unsupported. Raises ``UpdateCheckError``
+    on network or parse failure.
+    """
+    from lifegen_editor import __version__ as current
+
+    manifest = fetch_manifest(manifest_url())
+    remote = manifest.get("version", "0.0.0")
+    if not is_newer(current, remote):
+        return None
+    asset = pick_asset(manifest, platform.system(), platform.machine())
+    if asset is None:
+        return None
+    return manifest, asset
