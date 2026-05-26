@@ -50,7 +50,10 @@ def pick_asset(manifest: dict, system: str, machine: str) -> dict | None:
 
 
 import hashlib
+import json
+import tarfile
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Callable
 
@@ -104,3 +107,38 @@ def download(
             f"sha256 mismatch: expected {expected}, got {hasher.hexdigest()}"
         )
     return dest
+
+
+def fetch_manifest(url: str, timeout: float = 10.0) -> dict:
+    """GET ``url`` and parse the response as JSON. Raises UpdateCheckError."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "lifegen-save-editor-updater/1"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+        return json.loads(data.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        raise UpdateCheckError(f"failed to fetch manifest: {e}") from e
+
+
+def extract(archive: Path, dest_parent: Path) -> Path:
+    """Extract ``archive`` into ``dest_parent`` and return the staging dir.
+
+    Always extracts into a fresh subdirectory ``dest_parent / 'staging'`` so
+    callers know exactly where to find the unpacked tree.
+    """
+    staging = dest_parent / "staging"
+    if staging.exists():
+        import shutil
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+
+    suffix = "".join(archive.suffixes[-2:]) if archive.name.endswith(".tar.gz") else archive.suffix
+    if suffix == ".zip":
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(staging)
+    elif suffix == ".tar.gz":
+        with tarfile.open(archive, "r:gz") as tf:
+            tf.extractall(staging)
+    else:
+        raise UpdateError(f"unsupported archive type: {archive.name}")
+    return staging

@@ -102,10 +102,46 @@ def test_download_verifies_sha256() -> None:
             assert not dest.exists()
 
 
+import json
+import tarfile
+import zipfile
+
+
+def test_fetch_manifest() -> None:
+    manifest = {"version": "0.5.0", "assets": SAMPLE_MANIFEST["assets"]}
+    with serve_bytes(json.dumps(manifest).encode("utf-8")) as url:
+        got = client.fetch_manifest(url)
+        assert got["version"] == "0.5.0"
+
+
+def test_extract_zip(tmp: Path) -> None:
+    src = tmp / "src.zip"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("inner/hello.txt", "hi")
+    out = client.extract(src, tmp / "staging")
+    assert (out / "inner" / "hello.txt").read_text() == "hi"
+
+
+def test_extract_tar_gz(tmp: Path) -> None:
+    src = tmp / "src.tar.gz"
+    payload_dir = tmp / "payload"
+    (payload_dir / "inner").mkdir(parents=True)
+    (payload_dir / "inner" / "hello.txt").write_text("hi")
+    with tarfile.open(src, "w:gz") as tf:
+        tf.add(payload_dir, arcname="root")
+    out = client.extract(src, tmp / "staging")
+    assert (out / "root" / "inner" / "hello.txt").read_text() == "hi"
+
+
 def main() -> int:
     test_is_newer()
     test_pick_asset()
     test_download_verifies_sha256()
+    test_fetch_manifest()
+    with tempfile.TemporaryDirectory() as td:
+        test_extract_zip(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        test_extract_tar_gz(Path(td))
     print("smoke_updater_client OK")
     return 0
 
