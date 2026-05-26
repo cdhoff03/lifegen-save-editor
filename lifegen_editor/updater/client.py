@@ -47,3 +47,60 @@ def pick_asset(manifest: dict, system: str, machine: str) -> dict | None:
     if key is None:
         return None
     return manifest.get("assets", {}).get(key)
+
+
+import hashlib
+import urllib.request
+from pathlib import Path
+from typing import Callable
+
+
+class UpdateError(Exception):
+    """Base class for all updater errors."""
+
+
+class UpdateCheckError(UpdateError):
+    """Failed to fetch or parse the release manifest."""
+
+
+class ChecksumMismatch(UpdateError):
+    """Downloaded asset did not match the expected SHA-256."""
+
+
+def download(
+    asset: dict,
+    dest: Path,
+    progress_cb: Callable[[int, int | None], None] | None = None,
+    chunk_size: int = 64 * 1024,
+) -> Path:
+    """Stream ``asset['url']`` to ``dest``, verifying ``asset['sha256']``.
+
+    ``progress_cb(bytes_so_far, total_or_None)`` is called after each chunk.
+    Raises ``ChecksumMismatch`` if the SHA-256 doesn't match (and deletes
+    the partial file).
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    expected = asset["sha256"].lower()
+    hasher = hashlib.sha256()
+    bytes_so_far = 0
+
+    req = urllib.request.Request(asset["url"], headers={"User-Agent": "lifegen-save-editor-updater/1"})
+    with urllib.request.urlopen(req, timeout=30) as resp, open(dest, "wb") as f:
+        total_header = resp.headers.get("Content-Length")
+        total = int(total_header) if total_header else None
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            hasher.update(chunk)
+            bytes_so_far += len(chunk)
+            if progress_cb:
+                progress_cb(bytes_so_far, total)
+
+    if hasher.hexdigest().lower() != expected:
+        dest.unlink(missing_ok=True)
+        raise ChecksumMismatch(
+            f"sha256 mismatch: expected {expected}, got {hasher.hexdigest()}"
+        )
+    return dest

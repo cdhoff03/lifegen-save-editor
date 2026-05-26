@@ -47,9 +47,65 @@ def test_pick_asset() -> None:
     assert client.pick_asset(SAMPLE_MANIFEST, "Darwin", "ppc") is None
 
 
+import hashlib
+import http.server
+import socketserver
+import tempfile
+import threading
+from contextlib import contextmanager
+
+
+@contextmanager
+def serve_bytes(payload: bytes):
+    """Serve ``payload`` from a localhost HTTP server. Yields the URL."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a, **k) -> None:  # silence
+            pass
+
+    with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
+        host, port = httpd.server_address
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://{host}:{port}/asset.bin"
+        finally:
+            httpd.shutdown()
+
+
+def test_download_verifies_sha256() -> None:
+    payload = b"hello-update" * 100
+    good_sha = hashlib.sha256(payload).hexdigest()
+    bad_sha = "0" * 64
+
+    with serve_bytes(payload) as url:
+        # Good checksum: returns path to file containing the payload
+        with tempfile.TemporaryDirectory() as td:
+            out = client.download({"url": url, "sha256": good_sha}, Path(td) / "asset.bin")
+            assert out.read_bytes() == payload
+
+        # Bad checksum: raises ChecksumMismatch and removes the partial file
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "asset.bin"
+            try:
+                client.download({"url": url, "sha256": bad_sha}, dest)
+            except client.ChecksumMismatch:
+                pass
+            else:
+                raise AssertionError("expected ChecksumMismatch")
+            assert not dest.exists()
+
+
 def main() -> int:
     test_is_newer()
     test_pick_asset()
+    test_download_verifies_sha256()
     print("smoke_updater_client OK")
     return 0
 
