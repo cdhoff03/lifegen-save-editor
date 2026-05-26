@@ -29,3 +29,21 @@ def _parse(version: str) -> tuple[int, int, int, int]:
 def is_newer(current: str, remote: str) -> bool:
     """Return True if ``remote`` is strictly newer than ``current``."""
     return _parse(remote) > _parse(current)
+
+
+# OS+arch (as returned by platform.system() / platform.machine()) → manifest key.
+_ASSET_TABLE: dict[tuple[str, str], str] = {
+    ("Windows", "AMD64"):  "windows-x64",
+    ("Windows", "x86_64"): "windows-x64",
+    ("Darwin",  "arm64"):  "macos-arm64",
+    ("Darwin",  "x86_64"): "macos-x64",
+    ("Linux",   "x86_64"): "linux-x64",
+}
+
+
+def pick_asset(manifest: dict, system: str, machine: str) -> dict | None:
+    """Return the manifest asset entry for this OS+arch, or None."""
+    key = _ASSET_TABLE.get((system, machine))
+    if key is None:
+        return None
+    return manifest.get("assets", {}).get(key)
