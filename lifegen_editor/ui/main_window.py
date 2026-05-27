@@ -1,9 +1,10 @@
 """Main application window. Wires the three panels together."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QThread, QTimer, Qt
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
@@ -13,7 +14,16 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QSplitter,
     QStatusBar,
+    QVBoxLayout,
     QWidget,
+)
+
+from ..updater import client as updater_client
+from ..updater.ui import (
+    CheckForUpdatesDialog,
+    UpdateBanner,
+    _CheckWorker,
+    run_download_and_swap,
 )
 
 from ..io import CatData, parse_pcm_json, parse_pcm_url, to_pcm_json, to_pcm_url
@@ -52,7 +62,17 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
         splitter.setSizes([320, 640, 320])
-        self.setCentralWidget(splitter)
+
+        self.update_banner = UpdateBanner()
+        self.update_banner.update_requested.connect(self._begin_update)
+
+        central = QWidget()
+        v = QVBoxLayout(central)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        v.addWidget(self.update_banner)
+        v.addWidget(splitter, 1)
+        self.setCentralWidget(central)
 
         self._build_menu()
         self.setStatusBar(QStatusBar())
@@ -96,6 +116,10 @@ class MainWindow(QMainWindow):
         about = QAction("&About", self)
         about.triggered.connect(self._show_about)
         help_menu.addAction(about)
+
+        check_updates = QAction("&Check for Updates…", self)
+        check_updates.triggered.connect(self._show_check_for_updates)
+        help_menu.addAction(check_updates)
 
     # ---- actions ----
     def _import_json(self) -> None:
@@ -202,6 +226,43 @@ class MainWindow(QMainWindow):
             "(MPL-2.0). Not affiliated with the ClanGen or LifeGen teams.</p>",
         )
 
+    # ---- updater ----
+    def _show_check_for_updates(self) -> None:
+        dlg = CheckForUpdatesDialog(self)
+        dlg.update_requested.connect(self._begin_update)
+        dlg.exec()
+
+    def _begin_update(self, manifest: dict, asset: dict) -> None:
+        if not getattr(sys, "frozen", False):
+            QMessageBox.information(
+                self,
+                "Updates not available",
+                "Auto-update is only available in installed builds. "
+                "Pull the latest source and reinstall to update.",
+            )
+            return
+        run_download_and_swap(self, manifest, asset)
+
+    def schedule_auto_check(self) -> None:
+        """Run an auto-check 2 seconds after the window is shown."""
+        if not updater_client.auto_check_enabled():
+            return
+        QTimer.singleShot(2000, self._start_auto_check)
+
+    def _start_auto_check(self) -> None:
+        self._auto_thread = QThread(self)
+        self._auto_worker = _CheckWorker()
+        self._auto_worker.moveToThread(self._auto_thread)
+        self._auto_thread.started.connect(self._auto_worker.run)
+        self._auto_worker.finished.connect(self._on_auto_check_done)
+        self._auto_worker.finished.connect(self._auto_thread.quit)
+        self._auto_thread.start()
+
+    def _on_auto_check_done(self, manifest, asset, error) -> None:
+        # Silent on failure for the auto path; banner only shown if update found.
+        if error is None and manifest is not None and asset is not None:
+            self.update_banner.show_for(manifest, asset)
+
     # ---- helpers ----
     def _sync_after_replace(self) -> None:
         """Whenever ``self.cat`` is reassigned, both editor and preview need
@@ -214,4 +275,5 @@ def run() -> int:
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
     win.show()
+    win.schedule_auto_check()
     return app.exec()
