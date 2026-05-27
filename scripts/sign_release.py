@@ -2,7 +2,16 @@
 
 Run AFTER the CI workflow has published a GitHub Release for the same tag.
 Pulls the four CI artifacts down, registers them into the per-OS tufup trees,
-copies the signed metadata + targets into the gh-pages worktree, and pushes.
+uploads the resulting signed bundles to the GitHub Release as additional
+assets (with asset_key suffixes to disambiguate per-OS bundles), and copies
+ONLY the metadata (no targets/) into the gh-pages worktree.
+
+Why the split: GitHub's 100 MB per-file limit blocks the Linux bundle from
+going on gh-pages directly. GitHub Releases allow up to 2 GB per asset, so
+the .tar.gz bundles live there. Metadata is tiny (<1 MB total) and goes on
+gh-pages where the client fetches it. The client's tufup wrapper (see
+lifegen_editor/updater/tufup_client.py) overrides download_target to know
+about this URL scheme.
 
 Prerequisites:
   - ~/.lifegen-release/keystore/<asset_key>/ exists with valid keys
@@ -37,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tufup.repo import Repository
 
+from lifegen_editor.updater.tufup_client import suffix_filename_with_asset_key
 from scripts.tufup_settings import (
     ASSET_KEYS,
     GH_PAGES_WORKTREE,
@@ -121,13 +131,48 @@ def sign_one(version: str, asset_key: str, archive: Path, extract_root: Path) ->
     print(f"OK  signed {asset_key}: {archive.name}")
 
 
-def copy_subtree_to_worktree(asset_key: str) -> None:
-    """Mirror the tufup repository state into the gh-pages worktree."""
-    src = repository_for(asset_key)
-    dst = gh_pages_subtree_for(asset_key)
+def copy_metadata_to_worktree(asset_key: str) -> None:
+    """Mirror only the tufup repository's metadata/ subdir into gh-pages.
+
+    The targets/ subdir is excluded — those .tar.gz bundles are uploaded as
+    GitHub Release assets instead (see upload_targets_to_release()), because
+    GitHub blocks single files over 100 MB on regular repo branches.
+    """
+    src = repository_for(asset_key) / "metadata"
+    dst = gh_pages_subtree_for(asset_key) / "metadata"
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
+
+
+def upload_targets_to_release(tag: str, asset_key: str) -> None:
+    """Upload every target file in the tufup repo for this asset_key to the
+    GitHub Release for ``tag``, renaming each to include the asset_key suffix.
+
+    Uses ``gh release upload --clobber`` so re-running the script is idempotent.
+    Files are copied to a temp dir with the renamed name before uploading,
+    because ``gh release upload`` uses the on-disk filename as the asset name
+    (there is no #displayname rename flag).
+    """
+    targets_dir = repository_for(asset_key) / "targets"
+    with tempfile.TemporaryDirectory(prefix="lg-upload-") as staging:
+        staged_paths: list[Path] = []
+        for src in sorted(targets_dir.iterdir()):
+            if not src.is_file():
+                continue
+            renamed = suffix_filename_with_asset_key(src.name, asset_key)
+            dst = Path(staging) / renamed
+            shutil.copy2(src, dst)
+            staged_paths.append(dst)
+        if not staged_paths:
+            print(f"     (no targets to upload for {asset_key})")
+            return
+        subprocess.run(
+            ["gh", "release", "upload", tag, *[str(p) for p in staged_paths], "--clobber"],
+            check=True,
+        )
+        for p in staged_paths:
+            print(f"     uploaded {p.name}")
 
 
 def push_gh_pages(tag: str) -> None:
@@ -168,10 +213,11 @@ def main() -> int:
 
         for key, archive in classified.items():
             sign_one(version, key, archive, extract_root)
-            copy_subtree_to_worktree(key)
+            upload_targets_to_release(args.tag, key)
+            copy_metadata_to_worktree(key)
 
     push_gh_pages(args.tag)
-    print(f"\nPublished {args.tag} to gh-pages.")
+    print(f"\nPublished {args.tag}: targets on GitHub Release, metadata on gh-pages.")
     return 0
 
 
