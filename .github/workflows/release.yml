@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - { runner: windows-latest, asset_key: windows-x64,  archive: lifegen-save-editor-windows-x64.zip,     archive_type: zip }
-          - { runner: macos-13,       asset_key: macos-x64,    archive: lifegen-save-editor-macos-x64.zip,       archive_type: app-zip }
+          - { runner: macos-15-intel, asset_key: macos-x64,    archive: lifegen-save-editor-macos-x64.zip,       archive_type: app-zip }
           - { runner: macos-latest,   asset_key: macos-arm64,  archive: lifegen-save-editor-macos-arm64.zip,     archive_type: app-zip }
           - { runner: ubuntu-latest,  asset_key: linux-x64,    archive: lifegen-save-editor-linux-x64.tar.gz,    archive_type: tar-gz }
 
