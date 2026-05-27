@@ -271,6 +271,20 @@ class MainWindow(QMainWindow):
         self.preview.replace_cat(self.cat)
 
 
+def _detect_clipboard_format(text: str) -> str | None:
+    """Return ``"url"`` / ``"json"`` / ``None`` based on a quick sniff of ``text``.
+
+    Used by File → Import from clipboard so it can route to the right parser
+    without a second dialog.
+    """
+    s = text.strip()
+    if s.startswith(("http://", "https://")):
+        return "url"
+    if s.startswith("{"):
+        return "json"
+    return None
+
+
 def run() -> int:
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
