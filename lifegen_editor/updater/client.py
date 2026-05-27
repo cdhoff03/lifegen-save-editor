@@ -149,8 +149,7 @@ import platform
 import sys
 
 
-# TODO(user): set this to your GitHub <owner>/<repo> before first release.
-UPDATE_REPO = "<owner>/lifegen-save-editor"
+UPDATE_REPO = "cdhoff03/lifegen-save-editor"
 
 
 def manifest_url() -> str:
