@@ -11,6 +11,7 @@ no future signed releases.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -56,7 +57,14 @@ def init_one_tree(asset_key: str) -> None:
         encrypted_keys=[],
         thresholds={"root": 1, "targets": 1, "snapshot": 1, "timestamp": 1},
     )
-    repo.save_config()
+    # tufup 0.10.0 writes .tufup-repo-config to CWD, not to repo_dir, so
+    # chdir before calling save_config() to land it in the right place.
+    prev_cwd = Path.cwd()
+    try:
+        os.chdir(repo_dir)
+        repo.save_config()
+    finally:
+        os.chdir(prev_cwd)
     repo.initialize()
     print(f"OK  initialized {asset_key} → {repo_dir}")
 
