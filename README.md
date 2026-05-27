@@ -138,6 +138,34 @@ assets/
   LICENSES/       # upstream licence texts
 ```
 
+## Auto-update
+
+Installed builds check GitHub for a newer release on launch (and via
+**Help → Check for Updates…**). Clicking *Update* downloads the
+platform-appropriate archive, verifies its SHA-256, and relaunches the
+new build. Set `LIFEGEN_DISABLE_UPDATE_CHECK=1` to disable the launch
+check. Updates are silently skipped when running from source.
+
+## Releasing
+
+Releases are cut by pushing a `vX.Y.Z` tag. GitHub Actions builds for
+Windows x64, macOS arm64, macOS x64, and Linux x64 in parallel and
+publishes a Release with the archives, `checksums.txt`, and `latest.json`.
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+After the workflow finishes:
+1. Open the new Release and confirm 6 assets are attached (4 archives +
+   `checksums.txt` + `latest.json`).
+2. Install the previous version locally, launch it, open **Help → Check
+   for Updates…**, and confirm the update flow downloads, swaps, and
+   relaunches.
+3. If the swap fails, look for `update-failed.log` next to the install
+   directory.
+
 ## Licensing and attribution
 
 - **App code** in `lifegen_editor/` — MIT.
