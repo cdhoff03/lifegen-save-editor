@@ -1,20 +1,19 @@
 """Entry point. Run with ``python -m lifegen_editor`` or via the installed
 ``lifegen-save-editor`` script.
 
-If ``LIFEGEN_EDITOR_SELFTEST=1`` is set, the app constructs the main window,
-renders the preview once, prints OK, and exits 0. Used by packaging smoke
-tests to verify a frozen binary boots and finds its bundled assets.
+Modes:
+- Normal: launch the GUI.
+- ``LIFEGEN_EDITOR_SELFTEST=1``: render the preview once, print OK, exit.
+- ``--finish-update ...``: run the post-update swap-and-relaunch logic and
+  exit without ever constructing a Qt application.
 """
 import os
 import sys
 
-# Absolute imports — PyInstaller runs this script as the top-level __main__,
-# so relative imports break inside the frozen binary.
-from lifegen_editor.ui.main_window import MainWindow, run
-
 
 def _selftest() -> int:
     from PySide6.QtWidgets import QApplication
+    from lifegen_editor.ui.main_window import MainWindow
 
     app = QApplication.instance() or QApplication(sys.argv)
     win = MainWindow()
@@ -25,8 +24,19 @@ def _selftest() -> int:
 
 
 def main() -> int:
+    # Handle the post-update mode before importing any Qt.
+    if "--finish-update" in sys.argv:
+        from lifegen_editor.updater.swap import run_finish_update
+
+        rest = [a for a in sys.argv[1:] if a != "--finish-update"]
+        return run_finish_update(rest)
+
     if os.environ.get("LIFEGEN_EDITOR_SELFTEST") == "1":
         return _selftest()
+
+    # Absolute imports — PyInstaller runs this script as the top-level __main__,
+    # so relative imports break inside the frozen binary.
+    from lifegen_editor.ui.main_window import run
     return run()
 
 
