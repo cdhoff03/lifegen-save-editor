@@ -33,6 +33,7 @@ API notes (tufup 0.10.0):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -61,13 +62,45 @@ _ASSET_PATTERNS = {key: key for key in ASSET_KEYS}
 
 
 def gh_download(tag: str, dest: Path) -> list[Path]:
-    """Use the gh CLI to pull every asset from the release into ``dest``."""
+    """Pull the four CI build artifacts for ``tag`` into ``dest``.
+
+    These are workflow artifacts (uploaded by the build matrix in
+    release.yml), NOT release assets — the Release itself is intentionally
+    empty when CI publishes it, and this script attaches the signed bundles
+    afterward.
+    """
     dest.mkdir(parents=True, exist_ok=True)
+    # Find the workflow run that produced this tag. `gh run list` is
+    # filtered by event=push and the tag matches GITHUB_REF_NAME.
+    out = subprocess.run(
+        [
+            "gh", "run", "list",
+            "--workflow", "release.yml",
+            "--event", "push",
+            "--branch", tag,
+            "--limit", "1",
+            "--json", "databaseId,conclusion,headBranch",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    runs = json.loads(out.stdout)
+    if not runs:
+        raise SystemExit(f"no completed release.yml run found for tag {tag}")
+    run_id = str(runs[0]["databaseId"])
+    print(f"  downloading artifacts from run {run_id}")
     subprocess.run(
-        ["gh", "release", "download", tag, "-D", str(dest)],
+        ["gh", "run", "download", run_id, "-D", str(dest)],
         check=True,
     )
-    return sorted(dest.iterdir())
+    # gh run download lays out artifacts under <dest>/<artifact_name>/<files>.
+    # Flatten so the rest of the script sees a directory of archives.
+    flat: list[Path] = []
+    for path in dest.rglob("*"):
+        if path.is_file() and path.suffix in {".zip", ".gz"}:
+            flat.append(path)
+    return sorted(flat)
 
 
 def classify(archive_name: str) -> str | None:

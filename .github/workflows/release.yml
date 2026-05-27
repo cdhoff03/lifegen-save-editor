@@ -88,21 +88,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-
-      - name: Gather release files
-        run: |
-          mkdir release-files
-          find release-assets -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release-files/ \;
-          ls -la release-files/
-
-      - name: Publish GitHub Release
+      # Creates an EMPTY GitHub Release (notes auto-generated from commits).
+      # The actual binary assets are attached later by scripts/sign_release.py,
+      # which signs them with tufup keys offline before uploading. Build
+      # artifacts stay available as workflow artifacts (7-day retention) for
+      # sign_release.py to fetch via `gh run download`.
+      - name: Publish (empty) GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: release-files/*
-          fail_on_unmatched_files: true
