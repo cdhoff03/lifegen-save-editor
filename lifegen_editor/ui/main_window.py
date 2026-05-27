@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..updater import client as updater_client
+from ..updater import tufup_client as updater_client
 from ..updater.ui import (
     CheckForUpdatesDialog,
     UpdateBanner,
@@ -276,7 +276,7 @@ class MainWindow(QMainWindow):
         dlg.update_requested.connect(self._begin_update)
         dlg.exec()
 
-    def _begin_update(self, manifest: dict, asset: dict) -> None:
+    def _begin_update(self, target) -> None:
         if not getattr(sys, "frozen", False):
             QMessageBox.information(
                 self,
@@ -285,7 +285,7 @@ class MainWindow(QMainWindow):
                 "Pull the latest source and reinstall to update.",
             )
             return
-        run_download_and_swap(self, manifest, asset)
+        run_update(self, target)
 
     def schedule_auto_check(self) -> None:
         """Run an auto-check 2 seconds after the window is shown."""
@@ -302,10 +302,10 @@ class MainWindow(QMainWindow):
         self._auto_worker.finished.connect(self._auto_thread.quit)
         self._auto_thread.start()
 
-    def _on_auto_check_done(self, manifest, asset, error) -> None:
+    def _on_auto_check_done(self, target, error) -> None:
         # Silent on failure for the auto path; banner only shown if update found.
-        if error is None and manifest is not None and asset is not None:
-            self.update_banner.show_for(manifest, asset)
+        if error is None and target is not None:
+            self.update_banner.show_for(target)
 
     # ---- helpers ----
     def _sync_after_replace(self) -> None:
