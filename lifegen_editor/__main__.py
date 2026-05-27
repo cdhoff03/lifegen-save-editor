@@ -4,8 +4,6 @@
 Modes:
 - Normal: launch the GUI.
 - ``LIFEGEN_EDITOR_SELFTEST=1``: render the preview once, print OK, exit.
-- ``--finish-update ...``: run the post-update swap-and-relaunch logic and
-  exit without ever constructing a Qt application.
 """
 import os
 import sys
@@ -24,13 +22,6 @@ def _selftest() -> int:
 
 
 def main() -> int:
-    # Handle the post-update mode before importing any Qt.
-    if "--finish-update" in sys.argv:
-        from lifegen_editor.updater.swap import run_finish_update
-
-        rest = [a for a in sys.argv[1:] if a != "--finish-update"]
-        return run_finish_update(rest)
-
     if os.environ.get("LIFEGEN_EDITOR_SELFTEST") == "1":
         return _selftest()
 
