@@ -140,31 +140,64 @@ assets/
 
 ## Auto-update
 
-Installed builds check GitHub for a newer release on launch (and via
-**Help → Check for Updates…**). Clicking *Update* downloads the
-platform-appropriate archive, verifies its SHA-256, and relaunches the
-new build. Set `LIFEGEN_DISABLE_UPDATE_CHECK=1` to disable the launch
-check. Updates are silently skipped when running from source.
+Installed builds check `https://cdhoff03.github.io/lifegen-save-editor/`
+for a newer release on launch (and via **Help → Check for Updates…**).
+Updates are delivered as signed [TUF](https://theupdateframework.io/)
+bundles via the [tufup](https://github.com/dennisvang/tufup) library:
+each download is verified against the public root metadata embedded in
+the running build, then applied via `robocopy` (Windows) or
+`shutil.copytree` (macOS/Linux). Set `LIFEGEN_DISABLE_UPDATE_CHECK=1`
+to disable the launch check. Updates are silently skipped when running
+from source.
+
+> **Migrating from v0.1.0 / v0.2.0:** those builds used a different
+> update mechanism that has been removed. They will silently fail to
+> find updates. Install the latest release manually once from
+> [Releases](https://github.com/cdhoff03/lifegen-save-editor/releases);
+> auto-update resumes from there.
 
 ## Releasing
 
-Releases are cut by pushing a `vX.Y.Z` tag. GitHub Actions builds for
-Windows x64, macOS arm64, macOS x64, and Linux x64 in parallel and
-publishes a Release with the archives, `checksums.txt`, and `latest.json`.
+Releases are two-step: CI builds and publishes the GitHub Release; then
+the developer signs and republishes the same artifacts as a tufup
+bundle on the `gh-pages` branch.
+
+**Step 1 — push a tag, CI builds:**
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
-After the workflow finishes:
-1. Open the new Release and confirm 6 assets are attached (4 archives +
-   `checksums.txt` + `latest.json`).
-2. Install the previous version locally, launch it, open **Help → Check
-   for Updates…**, and confirm the update flow downloads, swaps, and
-   relaunches.
-3. If the swap fails, look for `update-failed.log` next to the install
-   directory.
+GitHub Actions builds for Windows x64, macOS arm64, macOS x64, and
+Linux x64 and publishes a GitHub Release with the archives.
+
+**Step 2 — sign and publish locally:**
+
+```bash
+.venv/bin/python scripts/sign_release.py v1.1.0
+```
+
+This pulls the 4 archives via `gh`, registers them into the four local
+tufup repositories (one per OS+arch), signs the new targets, copies the
+resulting metadata + bundles into the `~/lifegen-gh-pages/` worktree,
+and pushes.
+
+After ~1 minute, the new version is available to running installs.
+
+### First-time release setup
+
+Before the first release, run:
+
+```bash
+.venv/bin/python scripts/tufup_init.py
+# ... back up ~/.lifegen-release/keystore/ ...
+# ... copy the 4 1.root.json files into assets/tufup/<asset_key>/ ...
+# ... create the gh-pages branch + worktree ...
+```
+
+See `docs/superpowers/specs/2026-05-26-tufup-auto-update-rearchitecture-design.md`
+for the full bootstrap procedure.
 
 ## Licensing and attribution
 
