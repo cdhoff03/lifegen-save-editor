@@ -95,6 +95,11 @@ class MainWindow(QMainWindow):
         act_paste_json.triggered.connect(self._paste_json)
         file_menu.addAction(act_paste_json)
 
+        act_import_clip = QAction("Import from &clipboard", self)
+        act_import_clip.setShortcut("Ctrl+Shift+V")
+        act_import_clip.triggered.connect(self._import_clipboard)
+        file_menu.addAction(act_import_clip)
+
         file_menu.addSeparator()
 
         act_export_json = QAction("Copy current as &JSON", self)
@@ -176,6 +181,23 @@ class MainWindow(QMainWindow):
             return
         self._sync_after_replace()
         self.statusBar().showMessage("Imported pasted JSON")
+
+    def _import_clipboard(self) -> None:
+        text = QGuiApplication.clipboard().text() if QGuiApplication.clipboard() else ""
+        kind = _detect_clipboard_format(text)
+        if kind is None:
+            QMessageBox.information(
+                self, "Nothing to import",
+                "Clipboard didn't look like a pixel-cat-maker URL or JSON.",
+            )
+            return
+        try:
+            self.cat = parse_pcm_url(text) if kind == "url" else parse_pcm_json(text)
+        except Exception as e:
+            QMessageBox.critical(self, "Import failed", str(e))
+            return
+        self._sync_after_replace()
+        self.statusBar().showMessage(f"Imported from clipboard ({kind})")
 
     def _copy_json(self) -> None:
         text = to_pcm_json(self.cat)
