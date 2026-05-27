@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         bar = self.menuBar()
         file_menu = bar.addMenu("&File")
 
-        act_import_json = QAction("&Import pixel-cat-maker JSON…", self)
+        act_import_json = QAction("&Import pixel-cat-maker JSON from file…", self)
         act_import_json.triggered.connect(self._import_json)
         file_menu.addAction(act_import_json)
 
