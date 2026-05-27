@@ -68,7 +68,12 @@ class UpdateBanner(QWidget):
         layout.addWidget(dismiss_btn)
 
         # Subtle highlighted background so it's noticeable but not screaming.
-        self.setStyleSheet("background-color: #fff7d6;")
+        # Explicit text color too, otherwise dark-mode Windows themes paint the
+        # QLabel in white and it's unreadable on the pale background.
+        self.setStyleSheet(
+            "QWidget { background-color: #fff7d6; color: #1f1f1f; }"
+            "QPushButton { background-color: #fff; color: #1f1f1f; }"
+        )
         self.hide()
 
     def show_for(self, manifest: dict, asset: dict) -> None:
@@ -166,34 +171,45 @@ class CheckForUpdatesDialog(QDialog):
 # Download progress dialog. Spawns the updater on success.
 # -----------------------------------------------------------------------------
 
-class _DownloadWorker(QObject):
-    progress = Signal(int, int)  # bytes_so_far, total (or -1)
-    finished = Signal(object, object)  # (Path or None, error or None)
+class _DownloadExtractWorker(QObject):
+    """Downloads the asset and extracts it. Both phases run on the worker thread
+    so the UI stays responsive — extracting a PyInstaller --onedir Windows zip
+    is hundreds of MB and thousands of files, which is far too long to block
+    the UI thread on."""
 
-    def __init__(self, asset: dict, dest: Path) -> None:
+    progress = Signal(int, int)  # bytes_so_far, total (or -1) — download phase
+    state = Signal(str)          # "downloading" | "extracting"
+    finished = Signal(object, object)  # (staging_path or None, error or None)
+
+    def __init__(self, asset: dict, archive_dest: Path, staging_parent: Path) -> None:
         super().__init__()
         self._asset = asset
-        self._dest = dest
+        self._archive_dest = archive_dest
+        self._staging_parent = staging_parent
 
     def run(self) -> None:
         try:
+            self.state.emit("downloading")
             def cb(done: int, total: int | None) -> None:
                 self.progress.emit(done, total if total is not None else -1)
-            out = client.download(self._asset, self._dest, progress_cb=cb)
-            self.finished.emit(out, None)
+            archive = client.download(self._asset, self._archive_dest, progress_cb=cb)
+            self.state.emit("extracting")
+            staging = client.extract(archive, self._staging_parent)
+            self.finished.emit(staging, None)
         except Exception as e:  # noqa: BLE001
             self.finished.emit(None, e)
 
 
 def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
-    """Show a modal progress dialog, download, extract, spawn updater, quit."""
+    """Show a modal progress dialog, download + extract on a worker thread, then
+    spawn the updater and quit."""
     # Use a temp directory per update attempt; updater cleans it up later.
     temp_root = Path(tempfile.mkdtemp(prefix="lifegen-update-"))
     archive_path = temp_root / Path(asset["url"]).name
 
     dlg = QDialog(parent)
-    dlg.setWindowTitle("Downloading update")
-    dlg.setMinimumWidth(360)
+    dlg.setWindowTitle("Updating")
+    dlg.setMinimumWidth(380)
     label = QLabel(f"Downloading v{manifest['version']}…")
     bar = QProgressBar()
     bar.setRange(0, 0)  # indeterminate until we know total
@@ -205,7 +221,7 @@ def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
     v.addWidget(cancel)
 
     thread = QThread(parent)
-    worker = _DownloadWorker(asset, archive_path)
+    worker = _DownloadExtractWorker(asset, archive_path, temp_root)
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
 
@@ -215,33 +231,44 @@ def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
                 bar.setRange(0, total)
             bar.setValue(done)
 
-    def on_finished(out_path, error) -> None:
+    def on_state(state: str) -> None:
+        if state == "downloading":
+            label.setText(f"Downloading v{manifest['version']}…")
+        elif state == "extracting":
+            label.setText(f"Extracting v{manifest['version']}…")
+            # Switch the bar to indeterminate during extract — extract doesn't
+            # emit per-file progress, and a frozen 100% bar looks broken.
+            bar.setRange(0, 0)
+
+    def on_finished(staging, error) -> None:
         thread.quit()
         if error is not None:
             dlg.reject()
             QMessageBox.critical(parent, "Update failed", str(error))
             return
-        try:
-            staging = client.extract(out_path, temp_root)
-        except Exception as e:  # noqa: BLE001
-            dlg.reject()
-            QMessageBox.critical(parent, "Update failed", f"Could not extract: {e}")
-            return
 
-        # macOS staging contains a *.app; the install dir is the existing .app.
-        # Windows/Linux staging contains a single subdir matching the install layout.
+        label.setText("Launching updater…")
+        bar.setRange(0, 0)
+
         install_dir = swap.current_install_dir()
         new_root = _resolve_new_root(staging, install_dir)
         new_exe = _resolve_new_exe(new_root)
 
-        import subprocess
+        import subprocess, sys as _sys
+        popen_kwargs = {"close_fds": True}
+        if _sys.platform == "win32":
+            # Detach the child from this process's console/job so it survives
+            # our quit cleanly and Windows doesn't propagate the shutdown.
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         subprocess.Popen([
             str(new_exe),
             "--finish-update",
             "--install-dir", str(install_dir),
             "--staging-dir", str(new_root),
             "--parent-pid", str(os.getpid()),
-        ], close_fds=True)
+        ], **popen_kwargs)
         dlg.accept()
         # Give the OS a moment to register the child, then quit.
         from PySide6.QtCore import QTimer
@@ -249,6 +276,7 @@ def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
         QTimer.singleShot(200, QApplication.instance().quit)
 
     worker.progress.connect(on_progress)
+    worker.state.connect(on_state)
     worker.finished.connect(on_finished)
     thread.start()
     dlg.exec()
