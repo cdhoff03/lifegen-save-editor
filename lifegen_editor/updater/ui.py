@@ -1,10 +1,6 @@
 """Qt-side UI for the updater: banner + Check-for-Updates dialog."""
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
-
 from PySide6.QtCore import QObject, QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -18,29 +14,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import client, swap
-
 
 # -----------------------------------------------------------------------------
-# Background worker for the network calls (manifest fetch + download).
+# Background worker for the network calls (update check).
 # -----------------------------------------------------------------------------
 
 class _CheckWorker(QObject):
-    """Runs ``client.check_for_update()`` off the UI thread."""
+    """Runs ``tufup_client.check_for_update()`` off the UI thread."""
 
-    finished = Signal(object, object, object)  # (manifest_or_None, asset_or_None, error_or_None)
+    finished = Signal(object, object)  # (target_meta_or_None, error_or_None)
 
     def run(self) -> None:
+        from . import tufup_client
         try:
-            result = client.check_for_update()
-        except client.UpdateCheckError as e:
-            self.finished.emit(None, None, e)
+            target = tufup_client.check_for_update()
+        except Exception as e:  # noqa: BLE001
+            self.finished.emit(None, e)
             return
-        if result is None:
-            self.finished.emit(None, None, None)
-        else:
-            manifest, asset = result
-            self.finished.emit(manifest, asset, None)
+        self.finished.emit(target, None)
 
 
 # -----------------------------------------------------------------------------
@@ -48,12 +39,11 @@ class _CheckWorker(QObject):
 # -----------------------------------------------------------------------------
 
 class UpdateBanner(QWidget):
-    update_requested = Signal(dict, dict)  # (manifest, asset)
+    update_requested = Signal(object)  # tufup TargetMeta
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._manifest: dict | None = None
-        self._asset: dict | None = None
+        self._target = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -67,24 +57,22 @@ class UpdateBanner(QWidget):
         layout.addWidget(update_btn)
         layout.addWidget(dismiss_btn)
 
-        # Subtle highlighted background so it's noticeable but not screaming.
-        # Explicit text color too, otherwise dark-mode Windows themes paint the
-        # QLabel in white and it's unreadable on the pale background.
         self.setStyleSheet(
             "QWidget { background-color: #fff7d6; color: #1f1f1f; }"
             "QPushButton { background-color: #fff; color: #1f1f1f; }"
         )
         self.hide()
 
-    def show_for(self, manifest: dict, asset: dict) -> None:
-        self._manifest = manifest
-        self._asset = asset
-        self.label.setText(f"v{manifest['version']} is available.")
+    def show_for(self, target) -> None:
+        """Show the banner for a tufup TargetMeta describing the new version."""
+        self._target = target
+        version_str = str(getattr(target, "version", "")) or "a new version"
+        self.label.setText(f"v{version_str} is available.")
         self.show()
 
     def _on_update_clicked(self) -> None:
-        if self._manifest and self._asset:
-            self.update_requested.emit(self._manifest, self._asset)
+        if self._target is not None:
+            self.update_requested.emit(self._target)
 
 
 # -----------------------------------------------------------------------------
@@ -92,15 +80,14 @@ class UpdateBanner(QWidget):
 # -----------------------------------------------------------------------------
 
 class CheckForUpdatesDialog(QDialog):
-    update_requested = Signal(dict, dict)
+    update_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Check for Updates")
         self.setMinimumWidth(380)
 
-        self._manifest: dict | None = None
-        self._asset: dict | None = None
+        self._target = None
 
         self._label = QLabel("Checking for updates…")
         self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -123,16 +110,15 @@ class CheckForUpdatesDialog(QDialog):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
-    def _on_finished(self, manifest, asset, error) -> None:
+    def _on_finished(self, target, error) -> None:
         if error is not None:
             self._show_error(error)
             return
-        if manifest is None:
+        if target is None:
             from lifegen_editor import __version__
             self._label.setText(f"You're on the latest version ({__version__}).")
             return
-        self._manifest = manifest
-        self._asset = asset
+        self._target = target
         self._show_update_available()
 
     def _show_error(self, error: Exception) -> None:
@@ -150,69 +136,58 @@ class CheckForUpdatesDialog(QDialog):
         self._start_check()
 
     def _show_update_available(self) -> None:
-        assert self._manifest is not None
-        notes = self._manifest.get("notes_url")
-        text = f"<b>Version {self._manifest['version']}</b> is available."
-        if notes:
-            text += f'<br><a href="{notes}">Release notes</a>'
-        self._label.setText(text)
-        self._label.setOpenExternalLinks(True)
+        assert self._target is not None
+        version_str = str(getattr(self._target, "version", "")) or "a new version"
+        self._label.setText(f"<b>Version {version_str}</b> is available.")
         update = QPushButton("Update")
         update.clicked.connect(self._emit_update)
         self._buttons.addButton(update, QDialogButtonBox.ButtonRole.AcceptRole)
 
     def _emit_update(self) -> None:
-        if self._manifest and self._asset:
-            self.update_requested.emit(self._manifest, self._asset)
+        if self._target is not None:
+            self.update_requested.emit(self._target)
             self.accept()
 
 
 # -----------------------------------------------------------------------------
-# Download progress dialog. Spawns the updater on success.
+# Download / install worker and orchestration function (tufup-driven).
 # -----------------------------------------------------------------------------
 
-class _DownloadExtractWorker(QObject):
-    """Downloads the asset and extracts it. Both phases run on the worker thread
-    so the UI stays responsive — extracting a PyInstaller --onedir Windows zip
-    is hundreds of MB and thousands of files, which is far too long to block
-    the UI thread on."""
+class _UpdateWorker(QObject):
+    progress = Signal(int, int)        # bytes_so_far, total (or -1)
+    finished = Signal(object)          # error or None — on success this never fires
+                                       # because tufup spawns the installer and exits
 
-    progress = Signal(int, int)  # bytes_so_far, total (or -1) — download phase
-    state = Signal(str)          # "downloading" | "extracting"
-    finished = Signal(object, object)  # (staging_path or None, error or None)
-
-    def __init__(self, asset: dict, archive_dest: Path, staging_parent: Path) -> None:
+    def __init__(self, target) -> None:
         super().__init__()
-        self._asset = asset
-        self._archive_dest = archive_dest
-        self._staging_parent = staging_parent
+        self._target = target
 
     def run(self) -> None:
+        from . import tufup_client
         try:
-            self.state.emit("downloading")
             def cb(done: int, total: int | None) -> None:
                 self.progress.emit(done, total if total is not None else -1)
-            archive = client.download(self._asset, self._archive_dest, progress_cb=cb)
-            self.state.emit("extracting")
-            staging = client.extract(archive, self._staging_parent)
-            self.finished.emit(staging, None)
+            # download_and_apply_update either spawns the install script and
+            # terminates this process, or raises. It does not return normally.
+            tufup_client.perform_update(progress_cb=cb)
         except Exception as e:  # noqa: BLE001
-            self.finished.emit(None, e)
+            self.finished.emit(e)
 
 
-def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
-    """Show a modal progress dialog, download + extract on a worker thread, then
-    spawn the updater and quit."""
-    # Use a temp directory per update attempt; updater cleans it up later.
-    temp_root = Path(tempfile.mkdtemp(prefix="lifegen-update-"))
-    archive_path = temp_root / Path(asset["url"]).name
+def run_update(parent: QWidget, target) -> None:
+    """Show a modal progress dialog and run the tufup-driven update.
 
+    On the happy path the process exits before this function returns (tufup
+    spawns the install script and calls sys.exit). On failure we report the
+    error and leave the running install intact.
+    """
     dlg = QDialog(parent)
     dlg.setWindowTitle("Updating")
     dlg.setMinimumWidth(380)
-    label = QLabel(f"Downloading v{manifest['version']}…")
+    version_str = str(getattr(target, "version", "")) or "the new version"
+    label = QLabel(f"Downloading and installing v{version_str}…")
     bar = QProgressBar()
-    bar.setRange(0, 0)  # indeterminate until we know total
+    bar.setRange(0, 0)  # indeterminate; tufup may not report progress
     cancel = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
     cancel.rejected.connect(dlg.reject)
     v = QVBoxLayout(dlg)
@@ -221,7 +196,7 @@ def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
     v.addWidget(cancel)
 
     thread = QThread(parent)
-    worker = _DownloadExtractWorker(asset, archive_path, temp_root)
+    worker = _UpdateWorker(target)
     worker.moveToThread(thread)
     thread.started.connect(worker.run)
 
@@ -231,74 +206,12 @@ def run_download_and_swap(parent: QWidget, manifest: dict, asset: dict) -> None:
                 bar.setRange(0, total)
             bar.setValue(done)
 
-    def on_state(state: str) -> None:
-        if state == "downloading":
-            label.setText(f"Downloading v{manifest['version']}…")
-        elif state == "extracting":
-            label.setText(f"Extracting v{manifest['version']}…")
-            # Switch the bar to indeterminate during extract — extract doesn't
-            # emit per-file progress, and a frozen 100% bar looks broken.
-            bar.setRange(0, 0)
-
-    def on_finished(staging, error) -> None:
+    def on_finished(error) -> None:
         thread.quit()
-        if error is not None:
-            dlg.reject()
-            QMessageBox.critical(parent, "Update failed", str(error))
-            return
-
-        label.setText("Launching updater…")
-        bar.setRange(0, 0)
-
-        install_dir = swap.current_install_dir()
-        new_root = _resolve_new_root(staging, install_dir)
-        new_exe = _resolve_new_exe(new_root)
-
-        import subprocess, sys as _sys
-        popen_kwargs = {"close_fds": True}
-        if _sys.platform == "win32":
-            # Detach the child from this process's console/job so it survives
-            # our quit cleanly and Windows doesn't propagate the shutdown.
-            DETACHED_PROCESS = 0x00000008
-            CREATE_NEW_PROCESS_GROUP = 0x00000200
-            popen_kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen([
-            str(new_exe),
-            "--finish-update",
-            "--install-dir", str(install_dir),
-            "--staging-dir", str(new_root),
-            "--parent-pid", str(os.getpid()),
-        ], **popen_kwargs)
-        dlg.accept()
-        # Give the OS a moment to register the child, then quit.
-        from PySide6.QtCore import QTimer
-        from PySide6.QtWidgets import QApplication
-        QTimer.singleShot(200, QApplication.instance().quit)
+        dlg.reject()
+        QMessageBox.critical(parent, "Update failed", str(error))
 
     worker.progress.connect(on_progress)
-    worker.state.connect(on_state)
     worker.finished.connect(on_finished)
     thread.start()
     dlg.exec()
-
-
-def _resolve_new_root(staging: Path, install_dir: Path) -> Path:
-    """Find the directory inside ``staging`` that should replace ``install_dir``.
-
-    Archives we publish contain a single top-level directory (the
-    PyInstaller output dir on Windows/Linux, or the .app bundle on macOS).
-    """
-    entries = [p for p in staging.iterdir() if not p.name.startswith(".")]
-    if len(entries) == 1 and entries[0].is_dir():
-        return entries[0]
-    return staging
-
-
-def _resolve_new_exe(new_root: Path) -> Path:
-    """Path of the executable inside the freshly-extracted new build."""
-    import sys
-    if sys.platform == "win32":
-        return new_root / "lifegen-save-editor.exe"
-    if sys.platform == "darwin":
-        return new_root / "Contents" / "MacOS" / "lifegen-save-editor"
-    return new_root / "lifegen-save-editor"

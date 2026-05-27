@@ -23,7 +23,7 @@ from ..updater.ui import (
     CheckForUpdatesDialog,
     UpdateBanner,
     _CheckWorker,
-    run_download_and_swap,
+    run_update,
 )
 
 from ..io import CatData, parse_pcm_json, parse_pcm_url, to_pcm_json, to_pcm_url
