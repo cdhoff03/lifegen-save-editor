@@ -91,6 +91,10 @@ class MainWindow(QMainWindow):
         act_import_url.triggered.connect(self._import_url)
         file_menu.addAction(act_import_url)
 
+        act_paste_json = QAction("&Paste pixel-cat-maker JSON…", self)
+        act_paste_json.triggered.connect(self._paste_json)
+        file_menu.addAction(act_paste_json)
+
         file_menu.addSeparator()
 
         act_export_json = QAction("Copy current as &JSON", self)
@@ -154,6 +158,24 @@ class MainWindow(QMainWindow):
             return
         self._sync_after_replace()
         self.statusBar().showMessage("Imported URL")
+
+    def _paste_json(self) -> None:
+        clip = QGuiApplication.clipboard().text() if QGuiApplication.clipboard() else ""
+        prefill = clip if clip.strip().startswith("{") else ""
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Paste pixel-cat-maker JSON",
+            "Paste the JSON exported from pixel-cat-maker:",
+            prefill,
+        )
+        if not ok or not text.strip():
+            return
+        try:
+            self.cat = parse_pcm_json(text)
+        except Exception as e:
+            QMessageBox.critical(self, "Import failed", str(e))
+            return
+        self._sync_after_replace()
+        self.statusBar().showMessage("Imported pasted JSON")
 
     def _copy_json(self) -> None:
         text = to_pcm_json(self.cat)
