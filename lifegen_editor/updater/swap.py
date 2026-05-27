@@ -42,3 +42,44 @@ def current_install_dir() -> Path:
                 return p
         raise RuntimeError(f"could not locate .app bundle from {exe}")
     return exe.parent
+
+
+# -----------------------------------------------------------------------------
+# Atomic directory swap with rollback.
+# -----------------------------------------------------------------------------
+
+
+class SwapError(RuntimeError):
+    """The swap could not be completed; the install is left untouched."""
+
+
+def _swap_directories(install_dir: Path, staging_dir: Path) -> Path:
+    """Atomically replace ``install_dir`` with ``staging_dir``.
+
+    On success returns the path of the renamed-aside old install, so the
+    caller can clean it up.
+
+    On failure raises ``SwapError`` and leaves ``install_dir`` in its
+    original state.
+    """
+    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    old_path = install_dir.with_name(install_dir.name + f".old.{timestamp}")
+
+    # Step 1: rename current install aside.
+    try:
+        install_dir.rename(old_path)
+    except OSError as e:
+        raise SwapError(f"could not rename install dir aside: {e}") from e
+
+    # Step 2: move staging into place.
+    try:
+        shutil.move(str(staging_dir), str(install_dir))
+    except OSError as e:
+        # Try to roll back so the user is not left without an install.
+        try:
+            old_path.rename(install_dir)
+        except OSError:
+            pass
+        raise SwapError(f"could not move staging into place: {e}") from e
+
+    return old_path
