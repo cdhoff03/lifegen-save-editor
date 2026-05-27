@@ -1,0 +1,28 @@
+{
+ "signatures": [
+  {
+   "keyid": "739e9c505ceca8ae455eebf629683e27841b28f2fc527d48120130b77652fe2b",
+   "sig": "ce376fd799ae9458fca8334ecf0ab20f896324aca4fc8431619f9094ca285a528dd7baab5a6b07840413baddf62f572c09d18de2e32f50b6e6f03ecdc6ede209"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2027-05-27T03:04:34Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "lifegen-save-editor-1.0.0.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "01c7da1f952493a51b724af755831ddd57913b5cc228937ab01a49b3b9019454"
+    },
+    "length": 56107003
+   }
+  },
+  "version": 2
+ }
+}
