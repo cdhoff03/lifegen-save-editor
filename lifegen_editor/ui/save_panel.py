@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -70,6 +71,11 @@ class SavePanel(QWidget):
         # Cats
         cats_group = QGroupBox("Cats")
         cl2 = QVBoxLayout(cats_group)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search…")
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._on_search_changed)
+        cl2.addWidget(self.search_edit)
         self.cat_list = QListWidget()
         self.cat_list.currentRowChanged.connect(self._on_cat_change)
         cl2.addWidget(self.cat_list, 1)
@@ -145,6 +151,9 @@ class SavePanel(QWidget):
             self.cat_list.clear()
             self.apply_btn.setEnabled(False)
             return
+        self.search_edit.blockSignals(True)
+        self.search_edit.clear()
+        self.search_edit.blockSignals(False)
         self.cat_list.clear()
         for cat in self.current_clan.cats:
             item = QListWidgetItem(cat.display_name)
@@ -152,6 +161,12 @@ class SavePanel(QWidget):
         self.status_label.setText(f"Loaded {self.current_clan.name} ({len(self.current_clan.cats)} cats).")
         if self.current_clan.cats:
             self.cat_list.setCurrentRow(0)
+
+    def _on_search_changed(self, text: str) -> None:
+        needle = text.strip().lower()
+        for i in range(self.cat_list.count()):
+            item = self.cat_list.item(i)
+            item.setHidden(bool(needle) and needle not in item.text().lower())
 
     def _on_cat_change(self, row: int) -> None:
         if row < 0 or self.current_clan is None:
