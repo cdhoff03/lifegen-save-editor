@@ -88,38 +88,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Extract version from tag
-        id: ver
-        shell: bash
-        run: |
-          tag="${GITHUB_REF_NAME}"
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
 
-      - name: Generate manifest + checksums
-        run: |
-          python scripts/make_release_manifest.py \
-            --assets-dir release-assets \
-            --version "${{ steps.ver.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --out release-manifest
-
       - name: Gather release files
         run: |
           mkdir release-files
           find release-assets -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release-files/ \;
-          cp release-manifest/latest.json release-files/
-          cp release-manifest/checksums.txt release-files/
           ls -la release-files/
 
       - name: Publish GitHub Release
