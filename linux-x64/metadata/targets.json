@@ -2,12 +2,12 @@
  "signatures": [
   {
    "keyid": "3ea9e77a28704f872716bf2d61a7704045fa04cd10557dbe9e63105132434520",
-   "sig": "1144b00c05841bd8d3bd27bb40246f4d52223fbf907bd0af2e9136e4a42d0c4f3ffd27fcbe6581aad0065bdafeb77a2cc3b32ba00e396d3d83a67a4106231004"
+   "sig": "99bf3fbcbb4af3e52ab32f14d1869b24d60fbd9d5edf201c42a678f58f150da5eb765d1a5ceb41cdaa3cfe89ec82c7fec73396b679a21882de28e8e754184908"
   }
  ],
  "signed": {
   "_type": "targets",
-  "expires": "2027-06-01T04:06:25Z",
+  "expires": "2027-06-01T05:47:04Z",
   "spec_version": "1.0.31",
   "targets": {
    "lifegen-save-editor-1.0.0.tar.gz": {
@@ -33,8 +33,20 @@
      "sha256": "8467870b8f664c28669ea7ed5a31a4185a1fc1d36420b8652e3d9b206be7ff1c"
     },
     "length": 105271883
+   },
+   "lifegen-save-editor-1.0.2.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "827228d3e1edb8b4cce4b6fadf4e777741c35507e2c5fefdb250afeabc328335"
+    },
+    "length": 106434864
    }
   },
-  "version": 4
+  "version": 5
  }
 }
