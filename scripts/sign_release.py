@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tufup.repo import Repository
 
-from lifegen_editor.updater.tufup_client import suffix_filename_with_asset_key
+from lifegen_editor.updater.tufup_client import APP_NAME, suffix_filename_with_asset_key
 from scripts.tufup_settings import (
     ASSET_KEYS,
     GH_PAGES_WORKTREE,
@@ -111,18 +111,64 @@ def classify(archive_name: str) -> str | None:
 
 
 def _extract_archive(archive: Path, dest: Path) -> Path:
-    """Extract a .zip or .tar.gz archive into dest and return the dest dir."""
+    """Extract a .zip or .tar.gz archive into dest and return the dest dir.
+
+    macOS .app bundles depend on symlinks (e.g.
+    ``QtCore.framework/QtCore -> Versions/Current/QtCore``) and on the
+    executable bit of their Mach-O binaries. Python's ``zipfile`` preserves
+    neither: it rewrites every symlink as a small regular file containing the
+    link-target text and drops POSIX permissions. That silently corrupts the
+    bundle — dyld can no longer resolve the frameworks and the embedded code
+    signatures stop validating — which is exactly why such builds open as
+    "is damaged and can't be opened." ``ditto`` round-trips bundles
+    faithfully, so we use it for .zip whenever it is available (it always is
+    on macOS, where this script runs). ``tarfile`` already preserves symlinks
+    and modes, so the .tar.gz path is unchanged.
+    """
     dest.mkdir(parents=True, exist_ok=True)
     name = archive.name.lower()
     if name.endswith(".zip"):
-        with zipfile.ZipFile(archive) as zf:
-            zf.extractall(dest)
+        ditto = shutil.which("ditto")
+        if ditto:
+            subprocess.run([ditto, "-x", "-k", str(archive), str(dest)], check=True)
+        else:
+            # Non-macOS fallback. Safe for the Windows bundle (no symlinks);
+            # a macOS bundle extracted this way is caught by
+            # _verify_macos_bundle() before it can ship.
+            with zipfile.ZipFile(archive) as zf:
+                zf.extractall(dest)
     elif name.endswith(".tar.gz") or name.endswith(".tgz"):
         with tarfile.open(archive, "r:gz") as tf:
             tf.extractall(dest)
     else:
         raise ValueError(f"Unsupported archive format: {archive.name}")
     return dest
+
+
+def _verify_macos_bundle(bundle_dir: Path, app_name: str = APP_NAME) -> None:
+    """Fail loudly if a macOS .app bundle was corrupted during extraction.
+
+    Guards against the classic non-symlink-aware unzip damage: framework
+    symlinks flattened into regular files and the main executable stripped of
+    its exec bit. Either one ships an app that opens as "damaged", so this is
+    a hard release gate rather than a warning.
+    """
+    app = bundle_dir / f"{app_name}.app"
+    if not app.is_dir():
+        raise SystemExit(f"verify: bundle is missing or not a directory: {app}")
+
+    main_exe = app / "Contents" / "MacOS" / app_name
+    if not main_exe.is_file():
+        raise SystemExit(f"verify: main executable missing: {main_exe}")
+    if not (main_exe.stat().st_mode & 0o111):
+        raise SystemExit(f"verify: main executable is not executable: {main_exe}")
+
+    if not any(p.is_symlink() for p in app.rglob("*")):
+        raise SystemExit(
+            f"verify: {app} contains zero symlinks — its framework symlinks "
+            "were flattened (non-symlink-aware unzip). Extract with "
+            "`ditto -x -k`."
+        )
 
 
 def sign_one(version: str, asset_key: str, archive: Path, extract_root: Path) -> None:
@@ -147,6 +193,8 @@ def sign_one(version: str, asset_key: str, archive: Path, extract_root: Path) ->
     # package it using the correct tufup naming convention.
     bundle_dir = extract_root / asset_key
     _extract_archive(archive, bundle_dir)
+    if asset_key.startswith("macos"):
+        _verify_macos_bundle(bundle_dir)
 
     # from_config() uses CWD to locate .tufup-repo-config.
     prev_cwd = Path.cwd()
