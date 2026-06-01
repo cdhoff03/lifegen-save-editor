@@ -47,7 +47,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tufup.repo import Repository
 
-from lifegen_editor.updater.tufup_client import APP_NAME, suffix_filename_with_asset_key
+from lifegen_editor.updater.tufup_client import (
+    APP_NAME,
+    extract_target_version,
+    suffix_filename_with_asset_key,
+)
 from scripts.tufup_settings import (
     ASSET_KEYS,
     GH_PAGES_WORKTREE,
@@ -201,9 +205,14 @@ def sign_one(version: str, asset_key: str, archive: Path, extract_root: Path) ->
     try:
         os.chdir(repo_dir)
         repo = Repository.from_config()
+        # skip_patch=True: we ship only full .tar.gz bundles, no binary-diff
+        # patches. tufup's client falls back to a full download when no patch
+        # is available, so updates still work; we just trade a smaller download
+        # for a simpler, single-artifact-per-platform release.
         repo.add_bundle(
             new_bundle_dir=bundle_dir,
             new_version=version,
+            skip_patch=True,
         )
         repo.publish_changes(private_key_dirs=[keystore])
     finally:
@@ -227,19 +236,35 @@ def copy_metadata_to_worktree(asset_key: str) -> None:
 
 
 def upload_targets_to_release(tag: str, asset_key: str) -> None:
-    """Upload every target file in the tufup repo for this asset_key to the
-    GitHub Release for ``tag``, renaming each to include the asset_key suffix.
+    """Upload the current version's full bundle for this asset_key to the
+    GitHub Release for ``tag``, renaming it to include the asset_key suffix.
+
+    Only the .tar.gz for *this* release's version is uploaded. The tufup
+    targets/ dir accumulates every version's artifacts, but:
+      - older versions' archives already live on their own Releases (the
+        client resolves each archive from ``.../download/v<ver>/...``), so
+        re-uploading them here is dead weight; and
+      - we ship full bundles only (see skip_patch in sign_one), so any stray
+        .patch files must not be published.
+    Filtering to ``<app>-<version>.tar.gz`` keeps each Release to exactly the
+    four per-platform tarballs.
 
     Uses ``gh release upload --clobber`` so re-running the script is idempotent.
     Files are copied to a temp dir with the renamed name before uploading,
     because ``gh release upload`` uses the on-disk filename as the asset name
     (there is no #displayname rename flag).
     """
+    version = tag.lstrip("v")
     targets_dir = repository_for(asset_key) / "targets"
     with tempfile.TemporaryDirectory(prefix="lg-upload-") as staging:
         staged_paths: list[Path] = []
         for src in sorted(targets_dir.iterdir()):
             if not src.is_file():
+                continue
+            # Full bundles only, and only for this release's version.
+            if not src.name.endswith(".tar.gz"):
+                continue
+            if extract_target_version(src.name) != version:
                 continue
             renamed = suffix_filename_with_asset_key(src.name, asset_key)
             dst = Path(staging) / renamed
