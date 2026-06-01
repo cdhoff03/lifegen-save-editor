@@ -34,7 +34,10 @@ class SaveCat:
         full = (str(prefix) + str(suffix)).strip()
         if not full:
             full = self.raw.get("name") or self.cat_id
-        status = self.raw.get("status") or ""
+        # status may be a plain string (older saves) or a CatStatus dict (newer
+        # ClanGen) — pull just the current rank either way.
+        from .catstatus import rank_of
+        status = rank_of(self.raw.get("status"))
         if status:
             return f"{full} ({status})"
         return full
@@ -73,18 +76,36 @@ def load_clan(clan_path: Path) -> Clan:
     return Clan(name=clan_path.name, path=clan_path, cats=cats)
 
 
-def write_clan_with_backup(clan: Clan, *, backup_suffix: Optional[str] = None) -> Path:
-    """Persist updated cat data atomically and create a timestamped backup of the
-    previous ``clan_cats.json``. Returns the backup path."""
-    cats_file = clan.clan_cats_path
-    suffix = backup_suffix or time.strftime(".bak-%Y%m%d-%H%M%S")
-    backup = cats_file.with_suffix(cats_file.suffix + suffix)
-    if cats_file.exists():
-        shutil.copy2(cats_file, backup)
+def atomic_write_json(
+    path: Path, payload, *, backup_suffix: Optional[str] = None
+) -> Optional[Path]:
+    """Write ``payload`` to ``path`` as indent=2 JSON, atomically.
 
-    payload = [c.raw for c in clan.cats]
-    tmp = cats_file.with_suffix(cats_file.suffix + ".tmp")
+    If ``path`` already exists, a timestamped ``.bak-*`` copy is made first.
+    Parent directories are created as needed. The write itself is atomic
+    (temp file in the same directory, then ``replace``). Returns the backup
+    path, or ``None`` if there was no prior file to back up.
+
+    This is the single safety primitive every save-writer in the app reuses,
+    so conditions/relationships/clan.json get the same guarantee as
+    ``clan_cats.json``.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    suffix = backup_suffix or time.strftime(".bak-%Y%m%d-%H%M%S")
+    backup: Optional[Path] = None
+    if path.exists():
+        backup = path.with_suffix(path.suffix + suffix)
+        shutil.copy2(path, backup)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    tmp.replace(cats_file)
+    tmp.replace(path)
     return backup
+
+
+def write_clan_with_backup(clan: Clan, *, backup_suffix: Optional[str] = None) -> Optional[Path]:
+    """Persist updated cat data atomically and create a timestamped backup of the
+    previous ``clan_cats.json``. Returns the backup path (None if first write)."""
+    payload = [c.raw for c in clan.cats]
+    return atomic_write_json(clan.clan_cats_path, payload, backup_suffix=backup_suffix)

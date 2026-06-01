@@ -189,3 +189,13 @@ class SavePanel(QWidget):
 
     def selected_cat_index(self) -> int:
         return self.cat_list.currentRow()
+
+    def refresh_current_label(self) -> None:
+        """Re-render the selected cat's list label (name/status may have changed
+        after a details edit)."""
+        row = self.cat_list.currentRow()
+        if self.current_clan is None or not (0 <= row < len(self.current_clan.cats)):
+            return
+        item = self.cat_list.item(row)
+        if item is not None:
+            item.setText(self.current_clan.cats[row].display_name)

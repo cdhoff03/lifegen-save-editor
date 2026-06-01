@@ -36,6 +36,24 @@ NAME_TO_SPRITESNAME = {
     "Calico": "",
 }
 
+# (peltInfo category, sprite-name prefix) for accessories, in render-priority
+# order. An accessory id is looked up in each category's list; the first match
+# decides which sheet/prefix renders it.
+_ACCESSORY_CATEGORY_PREFIXES = [
+    ("plant_accessories", "acc_herbs"),
+    ("wild_accessories", "acc_wild"),
+    ("collars", "collars"),
+    ("flower_accessories", "acc_flower"),
+    ("plant2_accessories", "acc_plant2"),
+    ("snake_accessories", "acc_snake"),
+    ("smallAnimal_accessories", "acc_smallAnimal"),
+    ("deadInsect_accessories", "acc_deadInsect"),
+    ("aliveInsect_accessories", "acc_aliveInsect"),
+    ("fruit_accessories", "acc_fruit"),
+    ("crafted_accessories", "acc_crafted"),
+    ("tail2_accessories", "acc_tail2"),
+]
+
 
 @dataclass
 class Pelt:
@@ -273,17 +291,17 @@ def draw_cat(
             ctx = _apply_missing_scar(ctx, loader, f"scars{scar}", sprite_number)
 
     # 12. accessories (stacked in list order — last one drawn on top)
+    #
+    # Each accessory id belongs to exactly one peltInfo category, and the
+    # category determines the sprite-name prefix. Categories are checked in a
+    # fixed order matching the game's renderer; the first that contains the id
+    # wins (some ids appear in more than one sheet).
     if pelt.accessories:
-        plant = loader.pelt_info.get("plant_accessories", [])
-        wild = loader.pelt_info.get("wild_accessories", [])
-        collars = loader.pelt_info.get("collars", [])
         for acc in pelt.accessories:
-            if acc in plant:
-                _composite_on(ctx, loader.get_sprite_cached(f"acc_herbs{acc}", sprite_number))
-            elif acc in wild:
-                _composite_on(ctx, loader.get_sprite_cached(f"acc_wild{acc}", sprite_number))
-            elif acc in collars:
-                _composite_on(ctx, loader.get_sprite_cached(f"collars{acc}", sprite_number))
+            for category, prefix in _ACCESSORY_CATEGORY_PREFIXES:
+                if acc in loader.pelt_info.get(category, ()):
+                    _composite_on(ctx, loader.get_sprite_cached(f"{prefix}{acc}", sprite_number))
+                    break
 
     if pelt.reverse:
         ctx = ctx.transpose(Image.FLIP_LEFT_RIGHT)

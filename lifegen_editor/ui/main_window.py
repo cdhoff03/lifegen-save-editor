@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QInputDialog,
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
-    QSplitter,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -27,9 +27,10 @@ from ..updater.ui import (
 )
 
 from ..io import CatData, parse_pcm_json, parse_pcm_url, to_pcm_json, to_pcm_url
-from ..saves import Clan, write_clan_with_backup
+from ..saves import Clan, detect_variant, write_clan_with_backup
 from ..sprites import SpriteLoader, draw_cat
 from .editor_panel import EditorPanel
+from .details_panel import DetailsPanel
 from .preview import PreviewPanel
 from .save_panel import SavePanel
 
@@ -38,14 +39,25 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("LifeGen / ClanGen Save Editor")
-        self.resize(1280, 800)
+        self.resize(1500, 860)
+        # Floor = the three fixed side panels (300+340+300) plus the preview's
+        # 300 minimum, so every pane is always fully on-screen.
+        self.setMinimumSize(1240, 600)
 
         self.loader = SpriteLoader()
         self.cat = CatData()
 
         self.editor = EditorPanel(self.cat)
         self.preview = PreviewPanel(self.cat, self.loader)
+        self.details = DetailsPanel()
         self.save_panel = SavePanel()
+
+        # The three side panels are fixed width; only the centre preview flexes.
+        # This means the panels never push/shrink each other and can't be lost.
+        self.editor.setFixedWidth(300)
+        self.details.setFixedWidth(340)
+        self.save_panel.setFixedWidth(300)
+        self.preview.setMinimumWidth(300)
 
         self.editor.changed.connect(self.preview.render)
         self.preview.export_json_requested.connect(self._copy_json)
@@ -53,15 +65,18 @@ class MainWindow(QMainWindow):
         self.preview.save_png_requested.connect(self._save_png)
         self.save_panel.cat_picked.connect(self._on_cat_picked)
         self.save_panel.apply_requested.connect(self._on_apply_clicked)
+        self.details.applied.connect(self._on_details_applied)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self.editor)
-        splitter.addWidget(self.preview)
-        splitter.addWidget(self.save_panel)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 0)
-        splitter.setSizes([320, 640, 320])
+        # Fixed side panels, flexible centre — no draggable handles, so panes
+        # never resize one another.
+        panes = QWidget()
+        row = QHBoxLayout(panes)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(self.editor)
+        row.addWidget(self.preview, 1)
+        row.addWidget(self.details)
+        row.addWidget(self.save_panel)
 
         self.update_banner = UpdateBanner()
         self.update_banner.update_requested.connect(self._begin_update)
@@ -71,7 +86,7 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self.update_banner)
-        v.addWidget(splitter, 1)
+        v.addWidget(panes, 1)
         self.setCentralWidget(central)
 
         self._build_menu()
@@ -236,8 +251,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Could not parse cat", str(e))
             return
+        variant = detect_variant(clan)
+        self.editor.set_variant(variant)
         self._sync_after_replace()
-        self.statusBar().showMessage(f"Loaded {cat.display_name} from save.")
+        try:
+            self.details.load_from_pick(clan, index)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, "Could not load cat details", str(e))
+        self.statusBar().showMessage(
+            f"Loaded {cat.display_name} from save ({variant.value})."
+        )
+
+    def _on_details_applied(self) -> None:
+        # name/status may have changed — refresh the save-panel cat label.
+        self.save_panel.refresh_current_label()
 
     def _on_apply_clicked(self, clan: Clan, index: int) -> None:
         cat_ref = clan.cats[index]
@@ -263,7 +290,10 @@ class MainWindow(QMainWindow):
             self,
             "About",
             "<h3>LifeGen / ClanGen Save Editor</h3>"
-            "<p>Edit the appearance of cats in ClanGen and LifeGen save files.</p>"
+            "<p>Edit cats in ClanGen and LifeGen save files — appearance plus "
+            "status, life &amp; death, age, personality, skills, faith, health, "
+            "relationships, and clan settings. Options adapt to whichever game "
+            "the save came from.</p>"
             "<p>Sprite assets © the ClanGen Team (CC BY-NC 4.0). "
             "Compositor logic ported from "
             "<a href='https://github.com/cgen-tools/pixel-cat-maker'>pixel-cat-maker</a> "

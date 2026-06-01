@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..io import CatData
+from ..saves.variant import GameVariant
 from . import options as opt
 
 
@@ -60,6 +61,9 @@ class EditorPanel(QScrollArea):
         super().__init__(parent)
         self.cat = cat
         self._loading = False
+        # Default to the full LifeGen palette until a save tells us otherwise
+        # (a fresh cat with no save loaded should offer everything).
+        self._variant = GameVariant.LIFEGEN
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
@@ -114,11 +118,11 @@ class EditorPanel(QScrollArea):
         g = QGroupBox("Pelt")
         f = QFormLayout(g)
 
-        self.pelt_combo = _combo(opt.PELT_NAMES)
+        self.pelt_combo = _combo(opt.pelt_names(self._variant))
         self.pelt_combo.currentTextChanged.connect(self._on_change(lambda v: self._set("pelt_name", v)))
         f.addRow("Pattern", self.pelt_combo)
 
-        self.colour_combo = _combo(opt.colours())
+        self.colour_combo = _combo(opt.colours_for(self._variant))
         self.colour_combo.currentTextChanged.connect(self._on_change(lambda v: self._set("colour", v)))
         f.addRow("Colour", self.colour_combo)
 
@@ -135,7 +139,7 @@ class EditorPanel(QScrollArea):
         self.tortie_cb.toggled.connect(self._on_change(lambda v: self._set("is_tortie", bool(v))))
         f.addRow(self.tortie_cb)
 
-        self.tortie_mask_combo = _opt_combo(opt.tortie_masks())
+        self.tortie_mask_combo = _opt_combo(opt.tortie_masks_for(self._variant))
         self.tortie_mask_combo.currentIndexChanged.connect(
             self._on_change(lambda _: self._set("tortie_mask", self.tortie_mask_combo.currentData()))
         )
@@ -147,7 +151,7 @@ class EditorPanel(QScrollArea):
         )
         f.addRow("Overlay pattern", self.tortie_pattern_combo)
 
-        self.tortie_colour_combo = _opt_combo(opt.colours())
+        self.tortie_colour_combo = _opt_combo(opt.colours_for(self._variant))
         self.tortie_colour_combo.currentIndexChanged.connect(
             self._on_change(lambda _: self._set("tortie_colour", self.tortie_colour_combo.currentData()))
         )
@@ -179,7 +183,7 @@ class EditorPanel(QScrollArea):
     def _build_whites_group(self) -> QGroupBox:
         g = QGroupBox("White patches / Points / Vitiligo")
         f = QFormLayout(g)
-        self.white_combo = _opt_combo(opt.white_patches_only())
+        self.white_combo = _opt_combo(opt.white_patches_for(self._variant))
         self.white_combo.currentIndexChanged.connect(
             self._on_change(lambda _: self._set("white_patches", self.white_combo.currentData()))
         )
@@ -225,7 +229,7 @@ class EditorPanel(QScrollArea):
 
         add_row = QHBoxLayout()
         self.accessory_combo = QComboBox()
-        for label, value in opt.all_accessories():
+        for label, value in opt.all_accessories(self._variant):
             self.accessory_combo.addItem(label, userData=value)
         add_row.addWidget(self.accessory_combo, 1)
         add_btn = QPushButton("Add")
@@ -359,6 +363,44 @@ class EditorPanel(QScrollArea):
         self.cat = cat
         self.load_from_cat()
         self.changed.emit()
+
+    def set_variant(self, variant: GameVariant) -> None:
+        """Re-filter the appearance dropdowns for the loaded save's game so the
+        user only sees values valid for ClanGen / LifeGen (hidden both ways).
+        Current selections are preserved where still valid."""
+        if variant == self._variant:
+            return
+        self._variant = variant
+        self._loading = True
+        try:
+            self._refill_combo(self.pelt_combo, opt.pelt_names(variant))
+            self._refill_combo(self.colour_combo, opt.colours_for(variant))
+            self._refill_opt_combo(self.tortie_colour_combo, opt.colours_for(variant))
+            self._refill_opt_combo(self.tortie_mask_combo, opt.tortie_masks_for(variant))
+            self._refill_opt_combo(self.white_combo, opt.white_patches_for(variant))
+            self.accessory_combo.clear()
+            for label, value in opt.all_accessories(variant):
+                self.accessory_combo.addItem(label, userData=value)
+        finally:
+            self._loading = False
+
+    @staticmethod
+    def _refill_combo(combo: QComboBox, items: list[str]) -> None:
+        cur = combo.currentText()
+        combo.clear()
+        combo.addItems(items)
+        if cur in items:
+            combo.setCurrentText(cur)
+
+    @staticmethod
+    def _refill_opt_combo(combo: QComboBox, items: list[str]) -> None:
+        cur = combo.currentData()
+        combo.clear()
+        combo.addItem("(none)", userData=None)
+        for i in items:
+            combo.addItem(i, userData=i)
+        ix = combo.findData(cur)
+        combo.setCurrentIndex(ix if ix >= 0 else 0)
 
     @staticmethod
     def _select_data(combo: QComboBox, value):

@@ -2,7 +2,7 @@
 
 Cross-platform desktop app that lets you edit cats in
 [ClanGen](https://github.com/ClanGenOfficial/clangen) and
-[LifeGen](https://github.com/ManiiaKop/lifegen-fullgen) save files with the
+[LifeGen](https://github.com/sedgestripe/clangen) save files with the
 full visual customization surface of
 [pixel-cat-maker](https://cgen-tools.github.io/pixel-cat-maker/) built right
 in.
@@ -15,6 +15,19 @@ in.
   pattern, colour, tint, white patches, points, vitiligo, tortoiseshell mask
   and overlay, heterochromia, skin tone, scars (multi-select), accessories,
   shading, reverse, pose.
+- **Full cat editing (v1.0.2+)** — a *Cat details* pane edits everything beyond
+  appearance: name, status/rank, age (moons), gender, life & death (with a
+  one-click **Resurrect**), personality (trait + facets), skills, faith,
+  behaviour flags, plus per-cat **health/conditions**, **relationships**, and
+  clan-level settings (leader/deputy, leader lives, biome, reputation,
+  afterlife rosters).
+- **Variant-aware** — the editor detects whether a save is ClanGen or LifeGen
+  and shows only the options valid for that game (e.g. `medicine cat` vs
+  `healer`/`queen`; LifeGen-only accessories, faith, and stats are hidden for
+  ClanGen saves, and vice-versa).
+- **All of LifeGen's accessories** — the full expanded accessory catalogue
+  (flowers, small animals, insects, crafted items, harnesses, …) renders in
+  the live preview.
 - **Live preview** — the cat re-renders on every change, scalable 2x–12x with
   pixel-perfect nearest-neighbour scaling.
 - **Pixel-cat-maker interop** — import from the tool's JSON export or its
