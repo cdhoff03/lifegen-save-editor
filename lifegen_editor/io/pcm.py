@@ -10,6 +10,12 @@ The JSON format is appearance-only. Its ``accessory`` field is ``string |
 string[] | null`` — we accept either shape on import and produce a list on
 export (the pixel-cat-maker importer collapses to the first element, while
 ClanGen and ManiiaKop-LifeGen treat lists natively).
+
+LEGACY / BEST-EFFORT: pixel-cat-maker still speaks the pre-v0.13 asset era.
+Imports are converted to the current vocabulary (old collar ids, tortie
+patches, 21-pose sprite numbers), so anything the old tool can express renders
+here; exports use current ids, which the old tool won't render when they were
+renamed (e.g. ``LEATHER_crimson``).
 """
 from __future__ import annotations
 
@@ -18,7 +24,20 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from ..sprites.compositor import NAME_TO_SPRITESNAME
+from . import legacy_convert
 from .cat_data import CatData, SPRITESNAME_TO_NAME
+
+# Old 3x7 sheet pose index (0..20) -> new 3x9 named-pose index (0..25).
+_OLD_POSE_TO_NEW = (
+    3, 4, 5,      # kitten
+    6, 7, 8,      # adolescent (short)
+    12, 13, 14,   # adult short
+    15, 16, 17,   # adult long
+    18, 19, 20,   # senior
+    21, 22, 23,   # para adult / para young
+    24, 25,       # sick
+    0,            # newborn
+)
 
 PCM_SHARE_BASE = "https://cgen-tools.github.io/pixel-cat-maker/"
 
@@ -51,7 +70,9 @@ def parse_pcm_json(text_or_obj: str | dict) -> CatData:
 
     tortie_pattern_raw = data.get("tortie_pattern")
     tortie_pattern = (
-        SPRITESNAME_TO_NAME.get(tortie_pattern_raw) if tortie_pattern_raw else None
+        SPRITESNAME_TO_NAME.get(legacy_convert.normalize_tortie_pattern(tortie_pattern_raw))
+        if tortie_pattern_raw
+        else None
     )
 
     accessories = _coerce_accessory_list(data.get("accessory"))
@@ -64,7 +85,7 @@ def parse_pcm_json(text_or_obj: str | dict) -> CatData:
     else:
         scars = [scars_raw]
 
-    return CatData(
+    cat = CatData(
         pelt_name=actual_pelt,
         colour=data.get("pelt_color") or "CREAM",
         skin=data.get("skin") or "BLACK",
@@ -83,6 +104,8 @@ def parse_pcm_json(text_or_obj: str | dict) -> CatData:
         tortie_colour=data.get("tortie_color"),
         reverse=bool(data.get("reverse", False)),
     )
+    legacy_convert.convert_cat_data(cat)
+    return cat
 
 
 def to_pcm_json(cat: CatData, *, indent: int = 4) -> str:
@@ -165,9 +188,11 @@ def parse_pcm_url(url: str) -> CatData:
     cat.tortie_pattern = _opt("tortiePattern")
     if v := params.get("spriteNumber"):
         try:
-            cat.sprite_number = int(v)
+            old = int(v)
+            cat.sprite_number = _OLD_POSE_TO_NEW[old] if 0 <= old < len(_OLD_POSE_TO_NEW) else old
         except ValueError:
             pass
+    legacy_convert.convert_cat_data(cat)
     return cat
 
 

@@ -9,6 +9,16 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..sprites.compositor import Pelt, NAME_TO_SPRITESNAME
+from . import legacy_convert
+
+
+def is_new_schema(cat_dict: dict) -> bool:
+    """True for the ClanGen v0.13 / LifeGen v0.7.7+ save-cat schema."""
+    return (
+        "tortie_marking" in cat_dict
+        or "sprite_newborn" in cat_dict
+        or isinstance(cat_dict.get("status"), dict)
+    )
 
 
 # Inverse of NAME_TO_SPRITESNAME for tortie round-tripping
@@ -57,7 +67,7 @@ class CatData:
     tortie_pattern: Optional[str] = None   # pelt-name of overlay (e.g. "Tabby")
     tortie_colour: Optional[str] = None
 
-    sprite_number: int = 3                 # pose index 0..20
+    sprite_number: int = 12                # pose index 0..25 (12 = adult_short0)
     reverse: bool = False
     shading: bool = False
     dead: bool = False
@@ -112,13 +122,14 @@ class CatData:
         target game reads them back correctly. Returns the same dict for chaining.
 
         Schema sniffing (in order):
-            1. ``accessories`` (or ``inventory``) key present  → LifeGen
-               (ManiiaKop fork). Writes ``accessories`` + merges into
-               ``inventory``; clears legacy ``accessory``.
-            2. ``accessory`` is already a list/tuple           → modern ClanGen.
-               Writes ``accessory`` as a list.
-            3. otherwise (string or missing)                    → legacy single.
-               Writes ``accessory`` as a single string (first item or None).
+            1. ``accessories`` key present       → ManiiaKop-fork LifeGen.
+               Writes ``accessories`` + merges into ``inventory``; clears
+               legacy ``accessory``.
+            2. ``inventory`` key present         → official LifeGen (all
+               versions). ``accessory`` is the worn list; merges into
+               ``inventory``.
+            3. ``accessory`` is already a list   → ClanGen. Writes the list.
+            4. otherwise (string or missing)     → legacy single string.
         """
         cat_dict["pelt_name"] = self.name
         cat_dict["pelt_color"] = self.colour
@@ -132,7 +143,14 @@ class CatData:
         cat_dict["vitiligo"] = self.vitiligo
         cat_dict["points"] = self.points
         cat_dict["white_patches_tint"] = self.white_patches_tint
-        cat_dict["pattern"] = self.tortie_mask if self.is_tortie else None
+        # Old schema calls the tortie mask "pattern"; the new one "tortie_marking".
+        # Never leave both behind: the new loaders let a stale "pattern" key
+        # clobber tortie_marking on the next game load.
+        if is_new_schema(cat_dict):
+            cat_dict["tortie_marking"] = self.tortie_mask if self.is_tortie else None
+            cat_dict.pop("pattern", None)
+        else:
+            cat_dict["pattern"] = self.tortie_mask if self.is_tortie else None
         cat_dict["tortie_base"] = (
             NAME_TO_SPRITESNAME.get(self.pelt_name, "single") if self.is_tortie else None
         )
@@ -149,19 +167,15 @@ class CatData:
 
         # Accessory schema sniff
         worn = list(self.accessories)
-        if "accessories" in cat_dict or "inventory" in cat_dict:
-            # LifeGen (ManiiaKop fork): separate worn and owned lists.
+        if "accessories" in cat_dict:
+            # LifeGen (ManiiaKop fork): separate worn (accessories) + owned lists.
             cat_dict["accessories"] = worn
-            existing_inv = cat_dict.get("inventory") or []
-            if not isinstance(existing_inv, list):
-                existing_inv = [existing_inv] if existing_inv else []
-            # Inventory is a superset of worn; preserve any not-worn items.
-            merged = list(existing_inv)
-            for a in worn:
-                if a not in merged:
-                    merged.append(a)
-            cat_dict["inventory"] = merged
+            cat_dict["inventory"] = _merge_inventory(cat_dict, worn)
             cat_dict["accessory"] = None  # legacy slot cleared per migration logic
+        elif "inventory" in cat_dict:
+            # Official LifeGen (old and new): accessory = worn list, inventory = owned.
+            cat_dict["accessory"] = worn
+            cat_dict["inventory"] = _merge_inventory(cat_dict, worn)
         elif isinstance(cat_dict.get("accessory"), (list, tuple)):
             # Modern ClanGen: accessory IS the list.
             cat_dict["accessory"] = worn
@@ -183,12 +197,14 @@ class CatData:
 
         tortie_pattern_raw = cat_dict.get("tortie_pattern")
         tortie_pattern = (
-            SPRITESNAME_TO_NAME.get(tortie_pattern_raw) if tortie_pattern_raw else None
+            SPRITESNAME_TO_NAME.get(legacy_convert.normalize_tortie_pattern(tortie_pattern_raw))
+            if tortie_pattern_raw
+            else None
         )
 
         accessories = _read_accessories(cat_dict)
 
-        return cls(
+        cat = cls(
             pelt_name=actual_pelt,
             colour=cat_dict.get("pelt_color") or cat_dict.get("pelt_colour") or "CREAM",
             skin=cat_dict.get("skin") or "BLACK",
@@ -202,11 +218,29 @@ class CatData:
             accessories=accessories,
             scars=list(cat_dict.get("scars") or []),
             is_tortie=is_tortie,
-            tortie_mask=cat_dict.get("pattern") if is_tortie else None,
+            tortie_mask=(
+                cat_dict.get("tortie_marking", cat_dict.get("pattern"))
+                if is_tortie else None
+            ),
             tortie_pattern=tortie_pattern,
             tortie_colour=cat_dict.get("tortie_color") or cat_dict.get("tortie_colour"),
             reverse=bool(cat_dict.get("reverse", False)),
         )
+        # Migrate any pre-v0.13/v0.7.7 appearance ids to the current vocabulary.
+        legacy_convert.convert_cat_data(cat)
+        return cat
+
+
+def _merge_inventory(cat_dict: dict, worn: list[str]) -> list[str]:
+    """Inventory is a superset of worn; preserve any owned-but-unworn items."""
+    existing = cat_dict.get("inventory") or []
+    if not isinstance(existing, list):
+        existing = [existing] if existing else []
+    merged = list(existing)
+    for a in worn:
+        if a not in merged:
+            merged.append(a)
+    return merged
 
 
 def _read_accessories(cat_dict: dict) -> list[str]:

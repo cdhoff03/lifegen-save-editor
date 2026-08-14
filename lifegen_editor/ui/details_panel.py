@@ -348,11 +348,17 @@ class DetailsPanel(QScrollArea):
             grp.setVisible(lifegen)
 
     def _reload_variant_combos(self) -> None:
-        self._fill_combo(self.status_combo, opt.statuses(self._variant))
+        legacy_status = not isinstance(self.details._status_raw, dict)
+        self._fill_combo(self.status_combo,
+                         opt.statuses(self._variant, legacy_status=legacy_status))
         self._fill_combo(self.gender_combo, opt.genders(self._variant))
         self._fill_combo(self.gender_align_combo, opt.gender_aligns(self._variant))
+        self._fill_combo(self.trait_combo, opt.traits(self._variant))
         self._fill_opt_combo(self.skill_primary_combo, opt.skill_paths(self._variant))
         self._fill_opt_combo(self.skill_secondary_combo, opt.skill_paths(self._variant))
+        for bucket, _label, ids in _CONDITION_BUCKETS:
+            self._fill_combo(self._cond_combos[bucket],
+                             opt.conditions_for(ids, self._variant))
 
     @staticmethod
     def _fill_combo(combo: QComboBox, items: list[str]) -> None:
@@ -614,8 +620,9 @@ class DetailsPanel(QScrollArea):
             self._fill_opt_combo(combo, ids)
             self._set_combo_data(combo, cj.get(key))
         self.clan_lives_spin.setValue(int(cj.get("leader_lives", 9) or 0))
-        self.clan_age_spin.setValue(int(cj.get("clanage", cj.get("clan_age_moons", 0)) or 0)
-                                    if isinstance(cj.get("clanage"), (int, float)) else 0)
+        # LifeGen v0.7.7 renamed clanage -> clan_age; read whichever exists.
+        age = cj.get("clanage", cj.get("clan_age", 0))
+        self.clan_age_spin.setValue(int(age) if isinstance(age, (int, float)) else 0)
         self.clan_rep_spin.setValue(int(cj.get("reputation", 0) or 0))
         self._set_combo_text(self.clan_biome_combo, str(cj.get("biome", "Forest")))
         rosters = []
@@ -636,7 +643,10 @@ class DetailsPanel(QScrollArea):
         if self.clan_med_combo.currentData():
             cj["med_cat"] = self.clan_med_combo.currentData()
         cj["leader_lives"] = self.clan_lives_spin.value()
-        if isinstance(self._clan_json.get("clanage"), (int, float)) or "clanage" not in self._clan_json:
+        # Write the clan age back under whichever key the save already uses.
+        if "clan_age" in self._clan_json:
+            cj["clan_age"] = self.clan_age_spin.value()
+        elif isinstance(self._clan_json.get("clanage"), (int, float)) or "clanage" not in self._clan_json:
             cj["clanage"] = self.clan_age_spin.value()
         cj["reputation"] = self.clan_rep_spin.value()
         cj["biome"] = self.clan_biome_combo.currentText()

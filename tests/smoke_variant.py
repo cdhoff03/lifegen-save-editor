@@ -50,6 +50,25 @@ def main() -> int:
     assert detect_variant(_clan([{"ID": "1"}, {"junk": True}])) is GameVariant.CLANGEN
     print("OK  malformed/minimal cats tolerated")
 
+    # New-schema (v0.13/v0.7.7+) saves: status is a CatStatus dict.
+    dict_status = {"group_history": [{"group": "1", "rank": "warrior", "moons_as": 0}],
+                   "standing_history": [{"group": "1", "standing": ["member"], "near": True}]}
+    lg_new = _clan([{
+        "ID": "1", "status": dict_status, "moons": 40, "tortie_marking": None,
+        "sprite_newborn": "newborn0", "faith": 0, "inventory": [], "revives": 0,
+        "courage": 5, "df_mentor": None, "connected_dialogue": {},
+    }])
+    assert detect_variant(lg_new) is GameVariant.LIFEGEN, "LifeGen 0.7.7 key-set"
+    print("OK  LifeGen v0.7.7 new-schema cat -> LIFEGEN")
+
+    cg_new = _clan([{
+        "ID": "1", "status": dict_status, "moons": 40, "tortie_marking": None,
+        "sprite_newborn": "newborn0", "dark_forest_affinity": None,
+        "starclan_affinity": None, "pronouns": {"en": []},
+    }])
+    assert detect_variant(cg_new) is GameVariant.CLANGEN, "ClanGen 0.13 key-set"
+    print("OK  ClanGen v0.13 new-schema cat -> CLANGEN")
+
     return 0
 
 

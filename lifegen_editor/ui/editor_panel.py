@@ -90,10 +90,13 @@ class EditorPanel(QScrollArea):
         g = QGroupBox("Pose and Lineart")
         f = QFormLayout(g)
 
-        self.pose_spin = QSpinBox()
-        self.pose_spin.setRange(0, opt.POSE_COUNT - 1)
-        self.pose_spin.valueChanged.connect(self._on_change(lambda v: self._set("sprite_number", v)))
-        f.addRow("Pose", self.pose_spin)
+        self.pose_combo = QComboBox()
+        for i, name in enumerate(opt.POSE_NAMES):
+            self.pose_combo.addItem(name, userData=i)
+        self.pose_combo.currentIndexChanged.connect(
+            self._on_change(lambda v: self._set("sprite_number", v))
+        )
+        f.addRow("Pose", self.pose_combo)
 
         self.lineart_combo = QComboBox()
         for label, _ in opt.LINEART_STYLES:
@@ -319,7 +322,10 @@ class EditorPanel(QScrollArea):
         """Push the current `cat` values into every widget without emitting changes."""
         self._loading = True
         try:
-            self.pose_spin.setValue(self.cat.sprite_number)
+            self.pose_combo.setCurrentIndex(
+                self.cat.sprite_number
+                if 0 <= self.cat.sprite_number < opt.POSE_COUNT else 12
+            )
             self.reverse_cb.setChecked(self.cat.reverse)
             self.shading_cb.setChecked(self.cat.shading)
             for ix, (_, flags) in enumerate(opt.LINEART_STYLES):

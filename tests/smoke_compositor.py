@@ -25,7 +25,7 @@ def main() -> int:
         ("tabby_brown_eyes_amber", Pelt(name="Tabby", colour="BROWN", skin="BLACK", eye_colour="AMBER")),
         ("torbie_calico", Pelt(
             name="Tortie", colour="GINGER", tortie_base="tabby",
-            tortie_colour="BLACK", tortie_pattern="Tabby", pattern="ONE",
+            tortie_colour="BLACK", tortie_pattern="tabby", pattern="ONE",
             skin="BLACK", eye_colour="GREEN",
         )),
         ("white_socks", Pelt(
@@ -35,11 +35,11 @@ def main() -> int:
         ("heterochromia_with_collar", Pelt(
             name="Smoke", colour="DARKGREY", skin="BLACK",
             eye_colour="BLUE", eye_colour2="YELLOW",
-            accessories=["CRIMSON"],
+            accessories=["LEATHER_crimson"],
         )),
         ("stacked_accessories", Pelt(
             name="SingleColour", colour="WHITE", skin="PINK", eye_colour="GREEN",
-            accessories=["BLUE", "MAPLE LEAF"],  # collar with leaf on top
+            accessories=["LEATHER_blue", "MAPLE LEAF"],  # collar with leaf on top
         )),
         ("dead_starclan", Pelt(
             name="Tabby", colour="GOLDEN", skin="PINK", eye_colour="GREEN",
@@ -49,7 +49,14 @@ def main() -> int:
             reverse=True,
         )),
     ]
-    pose = 3
+    pose = 12  # adult_short0
+
+    # Heterochromia (mask-clipped second eye) and baked collars must actually
+    # change the render vs their plain counterparts.
+    het = cases[4][1]
+    plain = Pelt(name=het.name, colour=het.colour, skin=het.skin, eye_colour=het.eye_colour)
+    assert draw_cat(het, pose, loader).tobytes() != draw_cat(plain, pose, loader).tobytes(), \
+        "heterochromia + collar render identical to plain cat"
 
     for name, pelt in cases:
         try:

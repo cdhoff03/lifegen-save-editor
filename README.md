@@ -11,6 +11,12 @@ in.
 
 ## What it does
 
+- **Current game versions (v1.1.0+)** — targets **LifeGen v0.7.7.5** and
+  **ClanGen v0.13.3**: the new dict-based status/save schema, the 26 named
+  poses of the 3×9 sprite layout, the reworked ~380-accessory catalogue
+  (including palette-recoloured collars), and the expanded skill/trait/condition
+  vocab. Older saves are converted on read (old collar/accessory/tortie ids,
+  legacy status flags) — editing one migrates it the same way the game would.
 - **Full pixel-cat-maker functionality** — every appearance control: pelt
   pattern, colour, tint, white patches, points, vitiligo, tortoiseshell mask
   and overlay, heterochromia, skin tone, scars (multi-select), accessories,

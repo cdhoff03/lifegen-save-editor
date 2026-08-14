@@ -29,8 +29,20 @@ LINEART_STYLES: list[tuple[str, dict]] = [
     ("April Fools", {"dead": False, "dark_forest": False, "april_fools": True}),
 ]
 
-# How many poses the offset map defines.
-POSE_COUNT = 21
+# The 26 named poses of the v0.13/v0.7.7 sheet layout, in offset-map order.
+# Saves store these names in their sprite_* fields; the editor uses the index.
+POSE_NAMES: list[str] = [
+    "newborn0", "newborn1", "newborn2",
+    "kitten0", "kitten1", "kitten2",
+    "adolescent_short0", "adolescent_short1", "adolescent_short2",
+    "adolescent_long0", "adolescent_long1", "adolescent_long2",
+    "adult_short0", "adult_short1", "adult_short2",
+    "adult_long0", "adult_long1", "adult_long2",
+    "senior0", "senior1", "senior2",
+    "para_adult_short0", "para_adult_long0", "para_young0",
+    "sick_adult0", "sick_young0",
+]
+POSE_COUNT = len(POSE_NAMES)
 
 
 @lru_cache(maxsize=1)
@@ -54,13 +66,13 @@ def colours() -> list[str]:
 
 
 def eye_colours() -> list[str]:
-    # "eyes" prefix matches both eyes2 and the primary list; strip the "2*" entries.
-    return sorted({c for c in _extract("eyes") if not c.startswith("2")})
+    return _extract("eyes")
 
 
 def secondary_eye_colours() -> list[str]:
-    # eye2 sprites use names like "eyes2YELLOW".
-    return _extract("eyes2")
+    # No separate eyes2 sheet since v0.13/v0.7.7 — heterochromia reuses the
+    # primary eye sprites clipped through the shared mask.
+    return eye_colours()
 
 
 def skin_colours() -> list[str]:
@@ -171,13 +183,20 @@ _STATUS_CORE = [
 ]
 _STATUS_LIFEGEN_EXTRA = ["queen's apprentice", "queen"]
 _STATUS_OUTSIDERS = ["loner", "rogue", "kittypet", "exiled", "former Clancat"]
+# In the dict-status schema (v0.13/v0.7.7+) rank must be a valid CatRank enum
+# value; "exiled"/"former Clancat" are standings there, not ranks, and writing
+# them as a rank crashes the game on load.
+_LEGACY_ONLY_OUTSIDERS = {"exiled", "former Clancat"}
 
 
-def statuses(variant: GameVariant) -> list[str]:
+def statuses(variant: GameVariant, legacy_status: bool = True) -> list[str]:
     core = list(_STATUS_CORE)
     if variant.is_lifegen:
         core += _STATUS_LIFEGEN_EXTRA
-    return core + _STATUS_OUTSIDERS
+    outsiders = _STATUS_OUTSIDERS if legacy_status else [
+        s for s in _STATUS_OUTSIDERS if s not in _LEGACY_ONLY_OUTSIDERS
+    ]
+    return core + outsiders
 
 
 # --- gender / identity -------------------------------------------------------
@@ -213,9 +232,29 @@ KIT_TRAITS = [
 ]
 
 
-def traits() -> list[str]:
+# ClanGen v0.13.3 uses a strict subset of LifeGen's trait pool
+# (resources/dicts/traits/trait_ranges.json: 39 normal + 16 kit).
+CLANGEN_TRAITS = frozenset({
+    "adventurous", "ambitious", "arrogant", "bloodthirsty", "bold", "calm",
+    "careful", "charismatic", "childish", "cold", "compassionate", "competitive",
+    "confident", "cunning", "daring", "faithful", "fierce", "flamboyant",
+    "gloomy", "grumpy", "insecure", "lonesome", "loving", "loyal", "nervous",
+    "oblivious", "playful", "rebellious", "responsible", "righteous",
+    "shameless", "sincere", "sneaky", "strange", "strict", "thoughtful",
+    "troublesome", "vengeful", "wise",
+    # kit traits
+    "attention-seeker", "bossy", "bullying", "charming", "daydreamer",
+    "fearless", "impulsive", "know-it-all", "noisy", "polite", "quiet",
+    "self-conscious", "shy", "skittish", "sweet", "unruly",
+})
+
+
+def traits(variant: Optional[GameVariant] = None) -> list[str]:
     """All selectable traits (adult + kit), de-duplicated, alphabetised."""
-    return sorted(set(NORMAL_TRAITS) | set(KIT_TRAITS))
+    out = sorted(set(NORMAL_TRAITS) | set(KIT_TRAITS))
+    if variant is not None and not variant.is_lifegen:
+        out = [t for t in out if t in CLANGEN_TRAITS]
+    return out
 
 
 FACET_NAMES = ["lawfulness", "sociability", "aggression", "stability"]
@@ -223,18 +262,20 @@ FACET_MIN, FACET_MAX = 0, 16
 
 
 # --- skills ------------------------------------------------------------------
-# Base ClanGen paths (modern ClanGen still includes DIGGER).
+# ClanGen v0.13.3 SkillPath enum (23 paths; DIGGER no longer exists).
 _SKILL_CLANGEN = [
-    "TEACHER", "HUNTER", "FIGHTER", "RUNNER", "CLIMBER", "SWIMMER", "DIGGER",
+    "TEACHER", "HUNTER", "FIGHTER", "RUNNER", "CLIMBER", "SWIMMER",
     "SPEAKER", "MEDIATOR", "CLEVER", "INSIGHTFUL", "SENSE", "KIT", "STORY",
-    "LORE", "CAMP", "HEALER", "STAR", "DARK", "OMEN", "DREAM", "CLAIRVOYANT",
-    "PROPHET", "GHOST",
+    "LORE", "CAMP", "HEALER", "STAR", "OMEN", "DREAM", "CLAIRVOYANT",
+    "PROPHET", "GHOST", "DARK",
 ]
-# Official LifeGen v0.7.6.4 SkillPath enum (drops DIGGER, adds these 20).
+# Official LifeGen v0.7.7.5 SkillPath extras (the v0.7.6.4 twenty plus ten new).
 _SKILL_LIFEGEN_EXTRA = [
     "EXPLORER", "TRACKER", "ARTISTAN", "GUARDIAN", "TUNNELER", "NAVIGATOR",
     "SONG", "GRACE", "CLEAN", "INNOVATOR", "COMFORTER", "MATCHMAKER", "THINKER",
     "COOPERATIVE", "SCHOLAR", "TIME", "TREASURE", "FISHER", "LANGUAGE", "SLEEPER",
+    "GARDENER", "TWOLEGCARE", "CHARMER", "SHOWCAT", "WANDERER", "SCAVENGER",
+    "SURVIVOR", "BRAWLER", "INTIMIDATOR", "AMBUSHER",
 ]
 SKILL_POINTS_MIN, SKILL_POINTS_MAX = 0, 29
 HIDDEN_SKILLS = ["ROGUE", "LONER", "KITTYPET"]
@@ -242,9 +283,7 @@ HIDDEN_SKILLS = ["ROGUE", "LONER", "KITTYPET"]
 
 def skill_paths(variant: GameVariant) -> list[str]:
     if variant.is_lifegen:
-        # LifeGen dropped DIGGER from the base set, then added its 20 paths.
-        base = [p for p in _SKILL_CLANGEN if p != "DIGGER"]
-        return base + _SKILL_LIFEGEN_EXTRA
+        return _SKILL_CLANGEN + _SKILL_LIFEGEN_EXTRA
     return list(_SKILL_CLANGEN)
 
 
@@ -273,13 +312,14 @@ def age_stage(moons: int) -> str:
 
 
 # --- conditions (hardcoded from game resources/dicts/conditions) -------------
-# Condition IDs from official LifeGen v0.7.6.4 resources/dicts/conditions/*.json.
+# Condition IDs from official LifeGen v0.7.7.5 resources/dicts/conditions/*.json
+# (a superset of ClanGen v0.13.3 — the difference is LIFEGEN_ONLY_CONDITIONS).
 ILLNESSES = [
     "seizure", "diarrhea", "fleas", "greencough", "kittencough",
     "an infected wound", "carrionplace disease", "redcough", "running nose",
     "whitecough", "yellowcough", "a festering wound", "heat stroke",
     "heat exhaustion", "stomachache", "constant nightmares", "grief stricken",
-    "malnourished", "starving", "heartbroken",
+    "malnourished", "starving", "heartbroken", "breathless fit", "tick fever",
 ]
 INJURIES = [
     "claw-wound", "bite-wound", "cat bite", "beak bite", "snake bite", "rat bite",
@@ -290,6 +330,7 @@ INJURIES = [
     "burn", "severe burn", "shock", "lingering shock", "shivering", "dehydrated",
     "head damage", "damaged eyes", "quilled by a porcupine", "broken back",
     "poisoned", "bee sting", "headache", "severe headache", "pregnant", "guilt",
+    "sore throat",
 ]
 PERMANENT_CONDITIONS = [
     "crooked jaw", "lost a leg", "born without a leg", "weak leg", "twisted leg",
@@ -297,65 +338,56 @@ PERMANENT_CONDITIONS = [
     "wasting disease", "blind", "one bad eye", "failing eyesight",
     "partial hearing loss", "deaf", "constant joint pain", "seizure prone",
     "allergies", "constantly dizzy", "recurring shock", "lasting grief",
-    "persistent headaches",
+    "persistent headaches", "absent", "damaged throat", "selective mutism",
+    "strange lump",
 ]
+LIFEGEN_ONLY_CONDITIONS = {"heartbroken", "guilt"}
 CONDITION_SEVERITIES = ["minor", "major", "severe"]
 
 
+def conditions_for(bucket: list[str], variant: GameVariant) -> list[str]:
+    if variant.is_lifegen:
+        return list(bucket)
+    return [c for c in bucket if c not in LIFEGEN_ONLY_CONDITIONS]
+
+
 # --- variant-aware APPEARANCE filtering --------------------------------------
-# Appearance values that exist only in LifeGen's expanded asset set. Hidden when
-# editing a ClanGen save so the picker stays game-accurate in both directions.
-LIFEGEN_ONLY_COLOURS = {"GHOST"}
-LIFEGEN_ONLY_PELTS = {"Masked"}
-LIFEGEN_ONLY_WHITE_PATCHES = {"BLAZEMASK", "TEARS", "DOUGIE"}
-LIFEGEN_ONLY_TORTIE_MASKS = {"CRYPTIC", "BLUE-TIPPED"}
+# Since the v0.13 merge both games share the full base appearance vocabulary
+# (colours, pelts, patches, masks) — only accessories still differ. The empty
+# sets are kept so the filter functions stay stable.
+LIFEGEN_ONLY_COLOURS: frozenset[str] = frozenset()
+LIFEGEN_ONLY_PELTS: frozenset[str] = frozenset()
+LIFEGEN_ONLY_WHITE_PATCHES: frozenset[str] = frozenset()
+LIFEGEN_ONLY_TORTIE_MASKS: frozenset[str] = frozenset()
 
-# The base-ClanGen accessory whitelist. peltInfo.json now holds LifeGen's full
-# expanded plant/wild/collars lists, so ClanGen filtering can't just go by
-# category — it goes by membership in this frozen base set (the editor's bundled
-# accessories before LifeGen's sheets were imported, == base ClanGen).
-CLANGEN_ACCESSORY_WHITELIST = frozenset({
-    # plant / herbs
-    "MAPLE LEAF", "HOLLY", "BLUE BERRIES", "FORGET ME NOTS", "RYE STALK", "CATTAIL",
-    "POPPY", "ORANGE POPPY", "CYAN POPPY", "WHITE POPPY", "PINK POPPY", "BLUEBELLS",
-    "LILY OF THE VALLEY", "SNAPDRAGON", "HERBS", "PETALS", "NETTLE", "HEATHER",
-    "GORSE", "JUNIPER", "RASPBERRY", "LAVENDER", "OAK LEAVES", "CATMINT",
-    "MAPLE SEED", "LAUREL", "BULB WHITE", "BULB YELLOW", "BULB ORANGE", "BULB PINK",
-    "BULB BLUE", "CLOVER", "DAISY", "DRY HERBS", "DRY CATMINT", "DRY NETTLES",
-    "DRY LAURELS",
-    # wild
-    "RED FEATHERS", "BLUE FEATHERS", "JAY FEATHERS", "GULL FEATHERS",
-    "SPARROW FEATHERS", "MOTH WINGS", "ROSY MOTH WINGS", "MORPHO BUTTERFLY",
-    "MONARCH BUTTERFLY", "CICADA WINGS", "BLACK CICADA",
-    # collars: plain / bell / bow / nylon, all 15 colours each
-    "CRIMSON", "BLUE", "YELLOW", "CYAN", "RED", "LIME", "GREEN", "RAINBOW", "BLACK",
-    "SPIKES", "WHITE", "PINK", "PURPLE", "MULTI", "INDIGO",
-    "CRIMSONBELL", "BLUEBELL", "YELLOWBELL", "CYANBELL", "REDBELL", "LIMEBELL",
-    "GREENBELL", "RAINBOWBELL", "BLACKBELL", "SPIKESBELL", "WHITEBELL", "PINKBELL",
-    "PURPLEBELL", "MULTIBELL", "INDIGOBELL",
-    "CRIMSONBOW", "BLUEBOW", "YELLOWBOW", "CYANBOW", "REDBOW", "LIMEBOW", "GREENBOW",
-    "RAINBOWBOW", "BLACKBOW", "SPIKESBOW", "WHITEBOW", "PINKBOW", "PURPLEBOW",
-    "MULTIBOW", "INDIGOBOW",
-    "CRIMSONNYLON", "BLUENYLON", "YELLOWNYLON", "CYANNYLON", "REDNYLON", "LIMENYLON",
-    "GREENNYLON", "RAINBOWNYLON", "BLACKNYLON", "SPIKESNYLON", "WHITENYLON",
-    "PINKNYLON", "PURPLENYLON", "MULTINYLON", "INDIGONYLON",
-})
 
-# Ordered (peltInfo key, display label) for every accessory category. New
-# LifeGen categories are appended after the three base ones.
+@lru_cache(maxsize=1)
+def clangen_accessories() -> frozenset[str]:
+    """Base-ClanGen accessory set: plant + wild + collars (mirrors upstream
+    ``Pelt.all_clangen_accessories``). Everything else is LifeGen-only."""
+    info = _pelt_info()
+    return (frozenset(info["plant_accessories"])
+            | frozenset(info["wild_accessories"])
+            | frozenset(info["collars"]))
+
+
+# Ordered (peltInfo key, display label) for every accessory category, matching
+# the compositor's render-priority order.
 ACCESSORY_CATEGORIES: list[tuple[str, str]] = [
     ("plant_accessories", "Plant"),
     ("wild_accessories", "Wild"),
+    ("wild2_accessories", "Wild"),
     ("collars", "Collar"),
-    ("flower_accessories", "Flower"),
-    ("plant2_accessories", "Plant"),
-    ("snake_accessories", "Snake"),
-    ("smallAnimal_accessories", "Animal"),
-    ("deadInsect_accessories", "Dead insect"),
     ("aliveInsect_accessories", "Insect"),
+    ("deadInsect_accessories", "Dead insect"),
+    ("plant2_accessories", "Plant"),
+    ("sophisticated_accessories", "Crafted"),
     ("fruit_accessories", "Fruit"),
-    ("crafted_accessories", "Crafted"),
-    ("tail2_accessories", "Tail"),
+    ("flowercrown_accessories", "Flower crown"),
+    ("misc_accessories", "Misc"),
+    ("misc2_accessories", "Misc"),
+    ("harness_accessories", "Harness"),
+    ("smallanimals_accessories", "Animal"),
 ]
 
 
@@ -401,13 +433,14 @@ def all_accessories(variant: GameVariant) -> list[tuple[str, str]]:
     whitelist. Duplicates (same id in two categories) are de-duped by value.
     """
     info = _pelt_info()
+    base = clangen_accessories()
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
     for key, label in ACCESSORY_CATEGORIES:
         for acc in info.get(key, []):
             if acc in seen:
                 continue
-            if not variant.is_lifegen and acc not in CLANGEN_ACCESSORY_WHITELIST:
+            if not variant.is_lifegen and acc not in base:
                 continue
             seen.add(acc)
             out.append((f"{label} — {acc.title()}", acc))

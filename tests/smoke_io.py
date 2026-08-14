@@ -102,6 +102,38 @@ def main() -> int:
     assert rt3.accessories == ["SOLO"]
     print("OK  from_save_cat handles list, accessories key, and legacy string")
 
+    # New schema (ClanGen v0.13 / LifeGen v0.7.7+): dict status, tortie_marking,
+    # official-LifeGen accessory (worn list) + inventory.
+    new_cat = {
+        "ID": "9", "pelt_name": "Tortie", "pelt_color": "GOLDEN",
+        "tortie_base": "tabby", "tortie_marking": "ONE", "tortie_pattern": "single",
+        "tortie_color": "BLACK", "eye_colour": "GREEN", "skin": "PINK",
+        "accessory": ["LEATHER_crimson"], "inventory": ["LEATHER_crimson", "STASH"],
+        "sprite_newborn": "newborn0",
+        "status": {"group_history": [{"group": "1", "rank": "warrior", "moons_as": 0}]},
+    }
+    cd = CatData.from_save_cat(new_cat)
+    assert cd.tortie_mask == "ONE" and cd.accessories == ["LEATHER_crimson"]
+    cd.tortie_mask = "TWO"
+    cd.accessories = ["MOONHAT"]
+    out = cd.apply_to_save_cat(dict(new_cat))
+    assert out["tortie_marking"] == "TWO" and "pattern" not in out, out
+    assert out["accessory"] == ["MOONHAT"] and "accessories" not in out
+    assert set(out["inventory"]) == {"LEATHER_crimson", "STASH", "MOONHAT"}
+    print("OK  new-schema cat: tortie_marking written (no pattern), accessory+inventory")
+
+    # Legacy conversion: old ids preview + write back as current ids.
+    old_cat = {
+        "ID": "10", "pelt_name": "SingleColour", "pelt_color": "WHITE",
+        "eye_colour": "BLUEYELLOW", "skin": "BLACK", "status": "warrior",
+        "accessory": "CRIMSON", "white_patches": "POINTMARK",
+    }
+    cd_old = CatData.from_save_cat(old_cat)
+    assert cd_old.accessories == ["LEATHER_crimson"], cd_old.accessories
+    assert cd_old.eye_colour == "BLUE" and cd_old.eye_colour2 == "YELLOW"
+    assert cd_old.white_patches is None and cd_old.points == "SEALPOINT"
+    print("OK  legacy conversion: CRIMSON collar, split eyes, point marking")
+
     return 0
 
 

@@ -40,18 +40,20 @@ NAME_TO_SPRITESNAME = {
 # order. An accessory id is looked up in each category's list; the first match
 # decides which sheet/prefix renders it.
 _ACCESSORY_CATEGORY_PREFIXES = [
-    ("plant_accessories", "acc_herbs"),
-    ("wild_accessories", "acc_wild"),
-    ("collars", "collars"),
-    ("flower_accessories", "acc_flower"),
-    ("plant2_accessories", "acc_plant2"),
-    ("snake_accessories", "acc_snake"),
-    ("smallAnimal_accessories", "acc_smallAnimal"),
-    ("deadInsect_accessories", "acc_deadInsect"),
+    ("plant_accessories", "acc_plants"),
+    ("wild_accessories", "acc_wilds"),
+    ("wild2_accessories", "acc_wilds2"),
+    ("collars", "acc_collars"),
     ("aliveInsect_accessories", "acc_aliveInsect"),
+    ("deadInsect_accessories", "acc_deadInsect"),
+    ("plant2_accessories", "acc_plants2"),
+    ("sophisticated_accessories", "acc_sophisticated"),
     ("fruit_accessories", "acc_fruit"),
-    ("crafted_accessories", "acc_crafted"),
-    ("tail2_accessories", "acc_tail2"),
+    ("flowercrown_accessories", "acc_flowercrowns"),
+    ("misc_accessories", "acc_misc"),
+    ("misc2_accessories", "acc_misc2"),
+    ("harness_accessories", "acc_harness"),
+    ("smallanimals_accessories", "acc_smallanimals"),
 ]
 
 
@@ -261,10 +263,14 @@ def draw_cat(
         vit = loader.get_sprite_cached(f"white{pelt.vitiligo}", sprite_number)
         _composite_on(ctx, vit)
 
-    # 6. eyes
+    # 6. eyes — heterochromia clips the second colour through the shared mask
+    # (there is no separate eyes2 sheet since ClanGen v0.13 / LifeGen v0.7.7).
     _composite_on(ctx, loader.get_sprite_cached(f"eyes{pelt.eye_colour}", sprite_number))
     if pelt.eye_colour2:
-        _composite_on(ctx, loader.get_sprite_cached(f"eyes2{pelt.eye_colour2}", sprite_number))
+        _composite_on(
+            ctx,
+            _draw_masked(loader, f"eyes{pelt.eye_colour2}", "heterochromiamask", sprite_number),
+        )
 
     # 7. overlay scars (groups 1 and 3)
     scars1 = set(loader.pelt_info.get("scars1", []))

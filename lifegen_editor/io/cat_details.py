@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..saves.variant import GameVariant
+from ..saves import catstatus as cs
 from ..saves.catstatus import rank_of, with_rank
 
 # --- field-write policy --------------------------------------------------------
@@ -133,11 +134,20 @@ class CatDetails:
         d.experience = _as_int(cat_dict.get("experience"))
 
         d.moons = _as_int(cat_dict.get("moons"))
-        d.dead = bool(cat_dict.get("dead", False))
-        d.dead_moons = _as_int(cat_dict.get("dead_moons"))
-        d.df = bool(cat_dict.get("df", False))
-        d.outside = bool(cat_dict.get("outside", False))
-        d.exiled = bool(cat_dict.get("exiled", False))
+        if isinstance(d._status_raw, dict):
+            # New schema (v0.13/v0.7.7+): life/death/outsider state lives in the
+            # status histories, not in flag keys.
+            d.dead = cs.is_dead(d._status_raw)
+            d.dead_moons = cs.dead_moons_of(d._status_raw)
+            d.df = cs.is_df(d._status_raw)
+            d.outside = cs.is_outside(d._status_raw)
+            d.exiled = cs.is_exiled(d._status_raw)
+        else:
+            d.dead = bool(cat_dict.get("dead", False))
+            d.dead_moons = _as_int(cat_dict.get("dead_moons"))
+            d.df = bool(cat_dict.get("df", False))
+            d.outside = bool(cat_dict.get("outside", False))
+            d.exiled = bool(cat_dict.get("exiled", False))
         d.prevent_fading = bool(cat_dict.get("prevent_fading", False))
 
         d.trait = str(cat_dict.get("trait") or "")
@@ -190,11 +200,29 @@ class CatDetails:
 
         # Status — preserve the original shape (string vs CatStatus dict),
         # only updating the current rank.
-        cat_dict["status"] = with_rank(self._status_raw, self.status)
+        status = with_rank(self._status_raw, self.status)
+
+        # Dict-form saves keep life/death/outsider state in the status
+        # histories: apply only the transforms whose flag actually changed,
+        # in game order (kill/revive, afterlife flip, dead time, outside, exile).
+        if isinstance(self._status_raw, dict):
+            orig = self._status_raw
+            if self.dead != cs.is_dead(orig):
+                status = cs.kill(status, self.df) if self.dead else cs.revive(status)
+            elif self.dead and self.df != cs.is_df(orig):
+                status = cs.kill(status, self.df)  # move StarClan <-> Dark Forest
+            if self.dead and self.dead_moons != cs.dead_moons_of(orig):
+                status = cs.with_dead_moons(status, self.dead_moons)
+            if not self.dead:
+                if self.outside != cs.is_outside(orig):
+                    status = cs.set_outside(status, self.outside, lifegen)
+                if self.exiled != cs.is_exiled(orig):
+                    status = cs.set_exiled(status, self.exiled)
+        cat_dict["status"] = status
         cat_dict["experience"] = self.experience
 
         # Life & death. moons is universal; the flags are present-only (newer
-        # ClanGen has no dead/outside/exiled keys — see _PRESENT_ONLY).
+        # saves have no dead/outside/exiled keys — see _PRESENT_ONLY).
         cat_dict["moons"] = self.moons
         if should("dead"):
             cat_dict["dead"] = self.dead

@@ -61,7 +61,7 @@ def main() -> int:
         w.editor.pelt_combo.setCurrentText("Bengal")
         w.editor.colour_combo.setCurrentText("GINGER")
         w.editor.eye_combo.setCurrentText("BLUE")
-        ix = w.editor.accessory_combo.findData("CRIMSONBELL")
+        ix = w.editor.accessory_combo.findData("LEATHER_BELL_crimson")
         assert ix >= 0
         w.editor.accessory_combo.setCurrentIndex(ix)
         w.editor._add_accessory()
@@ -70,7 +70,7 @@ def main() -> int:
         w.editor.accessory_combo.setCurrentIndex(ix)
         w.editor._add_accessory()
         app.processEvents()
-        assert w.cat.accessories == ["CRIMSONBELL", "MAPLE LEAF"], w.cat.accessories
+        assert w.cat.accessories == ["LEATHER_BELL_crimson", "MAPLE LEAF"], w.cat.accessories
 
         # Suppress the confirmation dialog
         QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)  # type: ignore[assignment]
@@ -85,7 +85,7 @@ def main() -> int:
         assert on_disk[0]["eye_colour"] == "BLUE", on_disk[0]
         # Original cat had no accessories field at all → legacy single schema →
         # writes first item only.
-        assert on_disk[0]["accessory"] == "CRIMSONBELL", on_disk[0]
+        assert on_disk[0]["accessory"] == "LEATHER_BELL_crimson", on_disk[0]
         # Identity preserved
         assert on_disk[0]["moons"] == 50
         assert on_disk[0]["relationships"] == [1, 2, 3]

@@ -13,17 +13,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lifegen_editor.io import CatData
 from lifegen_editor.sprites import SpriteLoader, draw_cat
 
-# one representative id from each newly-imported category
+# one representative id from each imported category (v0.7.7.5 vocabulary)
 SAMPLES = {
-    "flower": "DAISIES",
-    "smallAnimal": "WHITE RABBIT",
-    "crafted": "WILLOWBARK BAG",
-    "snake": "KINGSNAKE",
-    "fruit": "CHERRY",
-    "aliveInsect": "BEE",
-    "deadInsect": "MONARCH",
+    "plant": "MAPLE LEAF",
+    "wild": "RED FEATHERS",
+    "wild2": "LILYPAD",
+    "collar": "LEATHER_crimson",       # palette-baked
+    "collar_grad": "NYLON_GRADIENT_rainbow",  # widest palette (25 slots)
+    "aliveInsect": "BROWN SNAIL",
+    "deadInsect": "LUNAR MOTH",
     "plant2": "PUMPKIN",
-    "tail2": "SEAWEED",
+    "sophisticated": "MOONHAT",
+    "fruit": "BLACKBERRY",
+    "flowercrown": "PINKFLOWERCROWN",
+    "misc": "TIDE",
+    "misc2": "ORANGEBUTTERFLY",
+    "harness": "REDHARNESS",
+    "smallanimals": "GRAY SQUIRREL",
 }
 
 
@@ -38,23 +44,26 @@ def main() -> int:
     outdir = Path(__file__).resolve().parent / "out"
     outdir.mkdir(exist_ok=True)
 
-    # baseline cat with no accessory, to compare opaque-pixel counts
+    # baseline cat with no accessory to compare against
     base = CatData(pelt_name="SingleColour", colour="WHITE", eye_colour="BLUE")
-    base_px = _opaque_pixels(draw_cat(base.to_pelt(), 3, loader))
+    base_img = draw_cat(base.to_pelt(), 12, loader)
+    base_px = _opaque_pixels(base_img)
+    base_bytes = base_img.tobytes()
 
     failures = 0
     for cat_label, acc in SAMPLES.items():
         cat = CatData(pelt_name="SingleColour", colour="WHITE", eye_colour="BLUE",
                       accessories=[acc])
         try:
-            img = draw_cat(cat.to_pelt(), 3, loader)
+            img = draw_cat(cat.to_pelt(), 12, loader)
         except Exception as e:  # noqa: BLE001
             print(f"FAIL {cat_label} ({acc}): render error {e}")
             failures += 1
             continue
         px = _opaque_pixels(img)
-        # the accessory should add (or at least change) opaque pixels vs baseline
-        ok = px != base_px and px > 0
+        # the accessory must change the rendered image (collars sit entirely
+        # inside the cat silhouette, so compare content, not opaque count)
+        ok = px > 0 and img.tobytes() != base_bytes
         img.save(outdir / f"acc_{cat_label}.png")
         print(f"{'OK  ' if ok else 'FAIL'} {cat_label:12s} {acc:16s} px={px} (base {base_px})")
         if not ok:
